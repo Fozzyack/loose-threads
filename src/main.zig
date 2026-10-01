@@ -8,21 +8,41 @@ const mem = std.mem;
 
 const Allocator = std.mem.Allocator;
 
+const expect = std.testing.expect;
+const eql = std.mem.eql;
+
 const print = std.debug.print;
 
 const Entry = struct {
-    name: []u8,
-    content: []u8 = &.{},
+    name: []const u8,
+    content: []const u8 = &.{},
 
-    pub fn init(self: *Entry, name: []const u8) void {
-        self.name = name;
-        return self;
+    fn init(name: []const u8) Entry {
+        return .{ .name = name };
     }
 
-    pub fn add_content(self: *Entry, content: []u8, allocator: Allocator) !void {
-        try mem.concat(allocator, u8, .{ self.content, content });
+    fn add_content(self: *Entry, content: []const u8, allocator: Allocator) !void {
+        const strs: []const []const u8 = &[_][]const u8{ self.content, content };
+        const new_content = try mem.concat(allocator, u8, strs);
+        if (self.content.len > 0) allocator.free(self.content);
+        self.content = new_content;
     }
 };
+
+test "create entry" {
+    const entry: Entry = Entry.init("test entry");
+    try expect(eql(u8, "test entry", entry.name));
+}
+
+test "add_content" {
+    const test_allocator = std.testing.allocator;
+    var entry: Entry = Entry.init("test entry");
+    try entry.add_content("This is some test\n", test_allocator);
+    defer test_allocator.free(entry.content);
+    try expect(eql(u8, "This is some test\n", entry.content));
+    try entry.add_content("another section\n", test_allocator);
+    try expect(eql(u8, "This is some test\nanother section\n", entry.content));
+}
 
 fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     var walker = try Dir.walk(css_dir, allocator);
