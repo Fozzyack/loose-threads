@@ -58,18 +58,6 @@ test "add_content" {
     try expect(eql(u8, "This is some test\nanother section\n", entry.content));
 }
 
-/// Recursively copies `.css` files into `public_dir` using their basenames.
-/// Files with matching basenames share the same destination path.
-pub fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
-    var walker = try Dir.walk(css_dir, allocator);
-    defer walker.deinit();
-
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!mem.endsWith(u8, entry.basename, ".css")) continue;
-        try Dir.copyFile(css_dir, entry.path, public_dir, entry.basename, io, .{});
-    }
-}
 
 /// Appends a section as an HTML heading or paragraph followed by a newline.
 /// Recognizes one to five leading `#` characters followed by a space and skips
