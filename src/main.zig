@@ -28,7 +28,6 @@ pub fn main(init: std.process.Init) !void {
     while (try walker.next(init.io)) |entry| {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".css")) continue;
-        print("{s}\n", .{entry.path});
         try Dir.copyFile(css_dir, entry.path, public_dir, entry.basename, init.io, .{});
     }
 }
