@@ -55,18 +55,36 @@ fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     }
 }
 
-fn parse_markdown(markdown_dir: Dir, io: Io, allocator: Allocator) !void {
+fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     var walker = try Dir.walk(markdown_dir, allocator);
     defer walker.deinit();
+
+    var read_buffer: [8192]u8 = undefined;
+    var offset: usize = 0;
+    var entries: []Entry = &.{};
 
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
+        var new_entry: Entry = Entry.init(entry.path);
 
         // Read file
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
+
+        while (true) {
+            const bytes_read: usize = try file.readPositionalAll(io, &read_buffer, offset);
+            if (bytes_read == 0) break;
+            offset += bytes_read;
+            while (true) {
+                const new_line = mem.findScalar(u8, &read_buffer, '\n') orelse break;
+            }
+        }
+
+        allocator.realloc(entries, entries.len + 1);
+        entries[entries.len - 1] = new_entry;
     }
+    return entries;
 }
 
 pub fn main(init: std.process.Init) !void {
