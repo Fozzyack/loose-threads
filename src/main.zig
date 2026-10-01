@@ -10,6 +10,16 @@ const Allocator = std.mem.Allocator;
 
 const print = std.debug.print;
 
+const Entry = struct {
+    name: []u8,
+    content: []u8 = undefined,
+
+    pub fn init(self: *Entry, name: []const u8) void {
+        self.name = name;
+        return self;
+    }
+};
+
 fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     var walker = try Dir.walk(css_dir, allocator);
     defer walker.deinit();
