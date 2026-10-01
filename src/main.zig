@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !void {
 
     const posts: []entries.Entry = try entries.create_entries(markdown_dir, init.io, init.arena.allocator());
     defer init.arena.allocator().free(posts);
-    for (entries) |*post| {
+    for (posts) |*post| {
         print("{s}\n", .{post.name});
         print("{s}\n", .{post.content});
         defer post.deinit(init.arena.allocator());

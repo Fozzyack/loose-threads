@@ -8,7 +8,7 @@ const print = std.debug.print;
 
 /// Recursively copies `.css` files into `public_dir` using their basenames.
 /// Files with matching basenames share the same destination path.
-fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+pub fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     var walker = try Dir.walk(css_dir, allocator);
     defer walker.deinit();
 
