@@ -129,6 +129,9 @@ fn get_date(file: File, entry: *Entry, io: Io, allocator: Allocator) !void {
     const es = epoch.EpochSeconds{ .secs = @intCast(secs) };
     const year_day = es.getEpochDay().calculateYearDay();
     const month_day = year_day.calculateMonthDay();
+    const day_hours = es.getDaySeconds().getHoursIntoDay();
+    const day_minutes = es.getDaySeconds().getMinutesIntoHour();
+    const day_seconds = es.getDaySeconds().getSecondsIntoMinute();
 
     const month_str: []const u8 = switch (month_day.month) {
         .jan => "January",
@@ -145,7 +148,16 @@ fn get_date(file: File, entry: *Entry, io: Io, allocator: Allocator) !void {
         .dec => "December",
     };
 
-    const content: []u8 = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d:0>2}, {d:0>4}</p>\n", .{ month_str, month_day.day_index + 1, year_day.year });
+    const output = .{
+        month_str,
+        month_day.day_index + 1,
+        year_day.year,
+        day_hours,
+        day_minutes,
+        day_seconds,
+    };
+
+    const content: []u8 = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d:0>2}, {d:0>4} @ {d:0>2}:{d:0>2}:{d:0>2} UTC</p>\n", output);
     defer allocator.free(content);
     try entry.add_content(content, allocator);
 }
@@ -162,7 +174,7 @@ test "markdown file stat" {
     try get_date(file, &entry, io, test_allocator);
 
     // Note this test may have to be updated if the markdown file is modifiled
-    try expect(eql(u8, "<p class=\"post-date\">October 01, 2026</p>\n", entry.content));
+    try expect(eql(u8, "<p class=\"post-date\">October 01, 2026 @ 19:49:27 UTC</p>\n", entry.content));
 }
 
 fn strip_newline(buffer: []u8, used: *usize) void {
@@ -202,7 +214,7 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
 
-        var new_entry: Entry = try Entry.init(entry.path, allocator);
+        var new_entry: Entry = try Entry.init(entry.path[0 .. entry.path.len - 3], allocator);
         try get_date(file, &new_entry, io, allocator);
 
         while (true) {
