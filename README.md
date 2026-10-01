@@ -6,7 +6,14 @@ The generator reads Markdown posts, renders them into HTML templates, and writes
 
 ## Project status
 
-This project is at the planning stage. The generator, build configuration, templates, and sample posts have not been implemented yet. The structure and commands below describe the intended first version.
+Under active development, still early. What works today:
+
+- `zig build` compiles `src/main.zig` into `blog-generator` and installs it at `zig-out/bin/blog-generator`.
+- Running the binary deletes and recreates `public/`, copies the stylesheet from `static/`, then reads every `.md` file under `markdown/`.
+- The reader splits each file on newlines and converts `#`–`#####` headings and paragraphs into HTML fragments.
+- Unit tests cover the `Entry` type and heading/paragraph parsing (`zig test src/main.zig`).
+
+Not implemented yet: the `title`/`date` metadata header, HTML escaping, template substitution, generating post pages and a homepage, and writing HTML files into `public/`. At the moment the parsed HTML is printed to the terminal instead of being written to disk.
 
 ## Goals
 
@@ -18,6 +25,8 @@ This project is at the planning stage. The generator, build configuration, templ
 - Deploy the generated files to Cloudflare Pages.
 
 ## How it works
+
+The intended pipeline:
 
 ```text
 Markdown posts + HTML templates + static assets
@@ -35,7 +44,7 @@ Markdown posts + HTML templates + static assets
 
 The generator will:
 
-1. Discover and read posts from `content/`.
+1. Discover and read posts from `markdown/`.
 2. Parse each post's metadata and Markdown body.
 3. Convert supported Markdown into HTML.
 4. Insert the title and rendered body into a shared page template.
@@ -44,27 +53,29 @@ The generator will:
 
 Plain-text values such as titles must be HTML-escaped. HTML tags should be produced deliberately by the Markdown renderer. Invalid posts should produce useful errors identifying the source file.
 
-## Planned structure
+## Project structure
 
 ```text
 blog/
-├── build.zig              # Build configuration and generation command
+├── build.zig              # Build configuration
 ├── src/
-│   └── main.zig           # Generator entry point
-├── content/
-│   └── hello-world.md     # Blog posts
+│   └── main.zig           # Generator entry point and Markdown parser
+├── markdown/
+│   └── hello_world.md     # Blog posts
 ├── templates/
-│   └── page.html          # Shared page layout
+│   ├── index.html         # Homepage layout
+│   └── page.html          # Post page layout
 ├── static/
-│   └── style.css          # Styles and other assets
-└── public/                # Generated site, ready to upload
+│   └── style.css          # Stylesheet and other assets
+├── goal/                  # Hand-written reference for the finished site
+└── public/                # Generated output (git-ignored)
 ```
 
-`content/`, `templates/`, and `static/` are source inputs. Treat `public/` as generated output: edit the inputs and rebuild rather than editing generated pages.
+`markdown/`, `templates/`, and `static/` are source inputs. Treat `public/` as generated output: edit the inputs and rebuild rather than editing generated pages. The `goal/` directory holds a static, hand-written version of the pages the generator is meant to produce.
 
 ## Toolchain
 
-The initial implementation will target **Zig 0.16.0**, the version installed when the project was started.
+This project targets **Zig 0.16.0**.
 
 Check your installed version with:
 
@@ -72,19 +83,30 @@ Check your installed version with:
 zig version
 ```
 
-## Planned build command
+## Build and run
 
-Once the generator and build configuration are implemented, run this from the project root:
+From the project root:
 
 ```sh
-zig build generate
+zig build
+./zig-out/bin/blog-generator
 ```
 
-The command will generate the site in `public/`. This command is not available yet.
+`zig build` builds and installs `blog-generator`. Running that binary regenerates `public/` and currently prints the parsed HTML to the terminal.
+
+Run the unit tests with:
+
+```sh
+zig test src/main.zig
+```
+
+`zig build --help` lists the available steps; only `install` and `uninstall` exist. There is no `zig build generate` step yet.
 
 ## Post format
 
-Posts will use a small metadata header followed by Markdown:
+The current parser works line by line: a line of `#`–`#####` followed by a space becomes an `<h1>`–`<h5>`, any other non-empty line becomes a `<p>`, and blank lines are skipped.
+
+Posts will eventually carry a small metadata header followed by Markdown:
 
 ```markdown
 ---
@@ -97,30 +119,13 @@ date: 2026-10-01
 This blog is generated using Zig.
 ```
 
-The first version will require `title` and `date`, using `YYYY-MM-DD` dates. This header is a project-specific format, not a full YAML implementation.
+The first version will require `title` and `date`, using `YYYY-MM-DD` dates. This header is a project-specific format, not a full YAML implementation, and is not parsed yet.
 
-The initial Markdown subset will support headings and paragraphs. Lists, links, and fenced code blocks can be added in later milestones.
+The Markdown subset so far covers headings and paragraphs. Lists, links, and fenced code blocks can be added in later milestones.
 
 ## Templates
 
-A page template will contain placeholders for the post title and rendered content:
-
-```html
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{title}}</title>
-    <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-    <main>{{content}}</main>
-</body>
-</html>
-```
-
-The generator will replace `{{title}}` with escaped text and `{{content}}` with rendered HTML.
+`templates/index.html` and `templates/page.html` are hand-written layouts. Template substitution is planned but not wired up: the generator will replace placeholders such as `{{title}}` with escaped text and `{{content}}` with rendered HTML.
 
 ## Deployment to Cloudflare Pages
 
@@ -140,9 +145,9 @@ Later, a CI workflow can build and deploy the site automatically when posts are 
 
 ## Implementation milestones
 
-1. **Generate one page:** create the Zig build configuration and write a basic HTML file.
-2. **Read a post:** load a Markdown file and parse its title and date.
-3. **Render content:** implement headings, paragraphs, HTML escaping, and template substitution.
-4. **Assemble the blog:** discover posts, generate individual pages, sort the homepage by date, and copy assets.
+1. **Generate one page:** create the Zig build configuration and write a basic HTML file. *Build configuration done; no HTML is written yet.*
+2. **Read a post:** load a Markdown file and parse its title and date. *Reading and line parsing done; title/date metadata not yet.*
+3. **Render content:** implement headings, paragraphs, HTML escaping, and template substitution. *Headings and paragraphs done; escaping and substitution not yet.*
+4. **Assemble the blog:** discover posts, generate individual pages, sort the homepage by date, and copy assets. *Asset copying done; pages and homepage not yet.*
 5. **Publish:** verify the generated site and deploy it to Cloudflare Pages.
 6. **Expand:** add more Markdown features, an RSS feed, and automated deployment.

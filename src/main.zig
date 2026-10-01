@@ -188,8 +188,9 @@ pub fn main(init: std.process.Init) !void {
 
     const entries: []Entry = try create_entries(markdown_dir, init.io, init.arena.allocator());
     defer init.arena.allocator().free(entries);
-    for (entries) |entry| {
+    for (entries) |*entry| {
         print("{s}\n", .{entry.name});
         print("{s}\n", .{entry.content});
+        defer entry.deinit(init.arena.allocator());
     }
 }
