@@ -17,8 +17,8 @@ const Entry = struct {
     name: []const u8,
     content: []const u8 = &.{},
 
-    fn init(name: []const u8) Entry {
-        return .{ .name = name };
+    fn init(name: []const u8, allocator: Allocator) !Entry {
+        return .{ .name = try allocator.dupe(u8, name) };
     }
 
     fn add_content(self: *Entry, content: []const u8, allocator: Allocator) !void {
@@ -29,20 +29,23 @@ const Entry = struct {
     }
 
     fn deinit(self: *Entry, allocator: Allocator) void {
+        allocator.free(self.name);
         allocator.free(self.content);
     }
 };
 
 test "create entry" {
-    const entry: Entry = Entry.init("test entry");
+    const test_allocator = std.testing.allocator;
+    var entry: Entry = try Entry.init("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
     try expect(eql(u8, "test entry", entry.name));
 }
 
 test "add_content" {
     const test_allocator = std.testing.allocator;
-    var entry: Entry = Entry.init("test entry");
+    var entry: Entry = try Entry.init("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
     try entry.add_content("This is some test\n", test_allocator);
-    defer test_allocator.free(entry.content);
     try expect(eql(u8, "This is some test\n", entry.content));
     try entry.add_content("another section\n", test_allocator);
     try expect(eql(u8, "This is some test\nanother section\n", entry.content));
@@ -91,29 +94,29 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
     try entry.add_content("\n", allocator);
 }
 test "parse_section with header" {
-    var entry: Entry = Entry.init("test entry");
+    const test_allocator: std.mem.Allocator = std.testing.allocator;
+    var entry: Entry = try Entry.init("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
     const section: []const u8 = "# Test header";
-    var testing_allocator: std.mem.Allocator = std.testing.allocator;
-    try parse_section(section, &entry, testing_allocator);
-    defer testing_allocator.free(entry.content);
+    try parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<h1>Test header</h1>\n", entry.content));
 }
 
 test "parse_section with header 2" {
-    var entry: Entry = Entry.init("test entry");
+    const test_allocator: std.mem.Allocator = std.testing.allocator;
+    var entry: Entry = try Entry.init("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
     const section: []const u8 = "## Test header";
-    var testing_allocator: std.mem.Allocator = std.testing.allocator;
-    try parse_section(section, &entry, testing_allocator);
-    defer testing_allocator.free(entry.content);
+    try parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<h2>Test header</h2>\n", entry.content));
 }
 
 test "parse_section paragraph" {
-    var entry: Entry = Entry.init("test entry");
+    const test_allocator: std.mem.Allocator = std.testing.allocator;
+    var entry: Entry = try Entry.init("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
     const section: []const u8 = "some # test entry!";
-    var testing_allocator: std.mem.Allocator = std.testing.allocator;
-    try parse_section(section, &entry, testing_allocator);
-    defer testing_allocator.free(entry.content);
+    try parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
 }
 
@@ -142,7 +145,7 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
-        var new_entry: Entry = Entry.init(entry.path);
+        var new_entry: Entry = try Entry.init(entry.path, allocator);
 
         // Read file
         var file = try markdown_dir.openFile(io, entry.path, .{});
