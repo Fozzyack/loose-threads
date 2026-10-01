@@ -12,11 +12,15 @@ const print = std.debug.print;
 
 const Entry = struct {
     name: []u8,
-    content: []u8 = undefined,
+    content: []u8 = &.{},
 
     pub fn init(self: *Entry, name: []const u8) void {
         self.name = name;
         return self;
+    }
+
+    pub fn add_content(self: *Entry, content: []u8, allocator: Allocator) !void {
+        try mem.concat(allocator, u8, .{ self.content, content });
     }
 };
 
