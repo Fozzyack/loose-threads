@@ -1,18 +1,22 @@
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A personal notebook on Zig, building for the web, and learning one small thing at a time.">
+    <meta name="description"
+        content="A personal notebook on Zig, building for the web, and learning one small thing at a time.">
     <meta name="theme-color" content="#0b0e14">
     <title>A blog built with Zig</title>
     <link rel="stylesheet" href="../static/style.css">
 </head>
+
 <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
-        <a class="site-name" href="index.html"><span class="terminal-prompt" aria-hidden="true">&gt;</span>A blog built with Zig<span class="terminal-cursor" aria-hidden="true">_</span></a>
+        <a class="site-name" href="index.html"><span class="terminal-prompt" aria-hidden="true">&gt;</span>A blog built
+            with Zig<span class="terminal-cursor" aria-hidden="true">_</span></a>
         <nav aria-label="Main navigation">
             <a href="#writing"><span class="nav-prefix" aria-hidden="true">./</span>Writing</a>
             <a href="#about"><span class="nav-prefix" aria-hidden="true">./</span>About</a>
@@ -33,22 +37,14 @@
             </div>
 
             <ol class="post-list">
-                <li>
-                    <a class="post-link" href="page.html">
-                        <time class="post-date" datetime="2026-10-01">Oct 01, 2026</time>
-                        <div class="post-summary">
-                            <h3>Hello World</h3>
-                            <p>A small beginning: learning Zig by building this blog.</p>
-                        </div>
-                        <span class="post-arrow" aria-hidden="true">&rarr;</span>
-                    </a>
-                </li>
+                {{ post_list }}
             </ol>
         </section>
 
         <section class="about" id="about" aria-labelledby="about-title">
             <h2 class="section-title" id="about-title">About this space</h2>
-            <p>A place to keep the things I learn while making things. This blog is itself a learning project: a small static-site generator, written in Zig. Simple pages, a few words, and room to grow.</p>
+            <p>A place to keep the things I learn while making things. This blog is itself a learning project: a small
+                static-site generator, written in Zig. Simple pages, a few words, and room to grow.</p>
         </section>
     </main>
 
@@ -57,4 +53,5 @@
         <a href="#main">Back to top <span aria-hidden="true">&uarr;</span></a>
     </footer>
 </body>
+
 </html>
