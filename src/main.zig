@@ -1,6 +1,7 @@
 const std = @import("std");
 const entries = @import("entries.zig");
 const assets = @import("assets.zig");
+const template = @import("templates.zig");
 
 const print = std.debug.print;
 const Dir = std.Io.Dir;
