@@ -4,6 +4,8 @@ const Io = std.Io;
 const Dir = Io.Dir;
 const File = Io.File;
 
+const epoch = std.time.epoch;
+
 const mem = std.mem;
 
 const Allocator = std.mem.Allocator;
@@ -118,6 +120,26 @@ test "parse_section paragraph" {
     const section: []const u8 = "some # test entry!";
     try parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
+}
+
+fn get_date(file: File, io: Io) !void {
+    const file_stat: File.Stat = try file.stat(io);
+    const ts: Io.Timestamp = file_stat.atime orelse file_stat.mtime;
+    const secs: i64 = ts.toSeconds();
+    const es = epoch.EpochSeconds{ .secs = @intCast(secs) };
+    const year_day = es.getEpochDay().calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+
+    print("{d:0>4}-{d:0>2}-{d:0>2}", .{ year_day.year, month_day.month.numeric(), month_day.day_index + 1 });
+}
+
+test "markdown file stat" {
+    const io = std.testing.io;
+    const dir = try Dir.cwd().openDir(io, "markdown", .{ .iterate = true });
+    defer Dir.close(dir, io);
+    const file = try dir.openFile(io, "hello_world.md", .{});
+    defer file.close(io);
+    try get_date(file, io);
 }
 
 fn strip_newline(buffer: []u8, used: *usize) void {
