@@ -122,7 +122,7 @@ test "parse_section paragraph" {
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
 }
 
-fn get_date(file: File, io: Io) !void {
+fn get_date(file: File, entry: *Entry, io: Io, allocator: Allocator) !void {
     const file_stat: File.Stat = try file.stat(io);
     const ts: Io.Timestamp = file_stat.atime orelse file_stat.mtime;
     const secs: i64 = ts.toSeconds();
@@ -130,16 +130,40 @@ fn get_date(file: File, io: Io) !void {
     const year_day = es.getEpochDay().calculateYearDay();
     const month_day = year_day.calculateMonthDay();
 
-    print("{d:0>4}-{d:0>2}-{d:0>2}", .{ year_day.year, month_day.month.numeric(), month_day.day_index + 1 });
+    const month_str: []const u8 = switch (month_day.month) {
+        .jan => "January",
+        .feb => "Febuary",
+        .mar => "March",
+        .apr => "April",
+        .may => "May",
+        .jun => "June",
+        .jul => "July",
+        .aug => "August",
+        .sep => "September",
+        .oct => "October",
+        .nov => "November",
+        .dec => "December",
+    };
+
+    const content: []u8 = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d:0>2}, {d:0>4}</p>\n", .{ month_str, month_day.day_index + 1, year_day.year });
+    defer allocator.free(content);
+    try entry.add_content(content, allocator);
+    print("{s}", .{entry.content});
 }
 
 test "markdown file stat" {
+    const test_allocator = std.testing.allocator;
     const io = std.testing.io;
     const dir = try Dir.cwd().openDir(io, "markdown", .{ .iterate = true });
     defer Dir.close(dir, io);
+    var entry: Entry = try Entry.init("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
     const file = try dir.openFile(io, "hello_world.md", .{});
     defer file.close(io);
-    try get_date(file, io);
+    try get_date(file, &entry, io, test_allocator);
+
+    // Note this test may have to be updated if the markdown file is modifiled
+    try expect(eql(u8, "<p class=\"post-date\">October 01, 2026</p>\n", entry.content));
 }
 
 fn strip_newline(buffer: []u8, used: *usize) void {
