@@ -58,7 +58,6 @@ test "add_content" {
     try expect(eql(u8, "This is some test\nanother section\n", entry.content));
 }
 
-
 /// Appends a section as an HTML heading or paragraph followed by a newline.
 /// Recognizes one to five leading `#` characters followed by a space and skips
 /// empty sections. Text is copied without HTML escaping; a section consisting
