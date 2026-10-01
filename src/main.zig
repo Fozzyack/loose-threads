@@ -15,7 +15,6 @@ pub fn main(init: std.process.Init) !void {
     Dir.cwd().deleteTree(init.io, "public") catch | err | {
         if (err != error.FileNotFound) return err;
     };
-
     try Dir.cwd().createDir(init.io, "public", .default_dir);
 
     const css_dir = try Dir.cwd().openDir(init.io, "static", .{ .iterate = true });
