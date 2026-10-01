@@ -128,8 +128,8 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
             offset += bytes_read;
             used += bytes_read;
             while (true) {
-                // const new_line = mem.findScalar(u8, &read_buffer, '\n') orelse break;
-
+                const new_line = mem.findScalar(u8, &read_buffer, '\n') orelse break;
+                parse_section(read_buffer[0..new_line], &new_entry, allocator);
             }
         }
 
