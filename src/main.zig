@@ -11,11 +11,13 @@ const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
 pub fn main(init: std.process.Init) !void {
-
-    Dir.cwd().deleteTree(init.io, "public") catch | err | {
+    Dir.cwd().deleteTree(init.io, "public") catch |err| {
         if (err != error.FileNotFound) return err;
     };
     try Dir.cwd().createDir(init.io, "public", .default_dir);
+
+    const public_dir = try Dir.cwd().openDir(init.io, "public", .{ .iterate = true });
+    defer public_dir.close(init.io);
 
     const css_dir = try Dir.cwd().openDir(init.io, "static", .{ .iterate = true });
     defer css_dir.close(init.io);
