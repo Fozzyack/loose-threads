@@ -136,12 +136,17 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
             if (bytes_read == 0) break;
             offset += bytes_read;
             used += bytes_read;
+            var newline_count: usize = 0;
+            for (read_buffer, 0..) |character, index| {
+                if (character != '\n') newline_count = index;
+            }
+
             while (true) {
                 print("{s}\n", .{read_buffer[0..100]});
-                const new_line = mem.findScalar(u8, &read_buffer, '\n') orelse break;
-                try parse_section(read_buffer[0..new_line], &new_entry, allocator);
-                mem.copyForwards(u8, &read_buffer, read_buffer[new_line..]);
-                used -= new_line;
+                const newline_idx = mem.findScalar(u8, &read_buffer, '\n') orelse break;
+                try parse_section(read_buffer[0..newline_idx], &new_entry, allocator);
+                mem.copyForwards(u8, &read_buffer, read_buffer[newline_idx..]);
+                used -= newline_idx;
             }
         }
 
