@@ -1,0 +1,79 @@
+:root {
+    color-scheme: light;
+    font-family: system-ui, sans-serif;
+    color: #28313b;
+    background: #faf8f4;
+    line-height: 1.7;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 2rem 1.25rem;
+}
+
+.site-header {
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #d8d3ca;
+}
+
+.site-name {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.site-header p + p,
+.post-date,
+footer {
+    color: #62666b;
+    font-size: 0.95rem;
+}
+
+main {
+    padding: 2rem 0;
+}
+
+.post-date {
+    margin: 0 0 0.5rem;
+}
+
+h1,
+h2 {
+    line-height: 1.2;
+    color: #20262d;
+}
+
+h1 {
+    margin: 0 0 1.5rem;
+    font-size: clamp(2rem, 6vw, 3rem);
+    letter-spacing: -0.04em;
+}
+
+h2 {
+    margin-top: 2rem;
+    font-size: 1.5rem;
+}
+
+a {
+    color: #79500b;
+    text-underline-offset: 0.2em;
+}
+
+a:hover {
+    text-decoration-thickness: 2px;
+}
+
+a:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+}
+
+footer {
+    padding-top: 1rem;
+    border-top: 1px solid #d8d3ca;
+}
