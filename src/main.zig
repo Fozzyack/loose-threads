@@ -33,4 +33,7 @@ pub fn main(init: std.process.Init) !void {
     const css_dir = try Dir.cwd().openDir(init.io, "static", .{ .iterate = true });
     defer css_dir.close(init.io);
     try copy_css(css_dir, public_dir, init.io, init.arena.allocator());
+
+    const markdown_dir = try Dir.cwd().openDir(init.io, "markdown", .{ .iterate = true });
+    defer markdown_dir.close(init.io);
 }
