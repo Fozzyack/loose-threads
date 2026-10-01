@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="A personal notebook on Zig, building for the web, and learning one small thing at a time.">
-    <meta name="theme-color" content="#171816">
+    <meta name="theme-color" content="#0b0e14">
     <title>A blog built with Zig</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -12,10 +12,10 @@
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
-        <a class="site-name" href="index.html">A blog built with Zig<span class="accent">.</span></a>
+        <a class="site-name" href="index.html"><span class="terminal-prompt" aria-hidden="true">&gt;</span>A blog built with Zig<span class="terminal-cursor" aria-hidden="true">_</span></a>
         <nav aria-label="Main navigation">
-            <a href="#writing">Writing</a>
-            <a href="#about">About</a>
+            <a href="#writing"><span class="nav-prefix" aria-hidden="true">./</span>Writing</a>
+            <a href="#about"><span class="nav-prefix" aria-hidden="true">./</span>About</a>
         </nav>
     </header>
 
@@ -28,8 +28,8 @@
 
         <section class="writing" id="writing" aria-labelledby="writing-title">
             <div class="section-heading">
-                <h2 class="eyebrow" id="writing-title">Writing</h2>
-                <span class="section-note">The latest note</span>
+                <h2 class="section-title" id="writing-title">Writing</h2>
+                <span class="section-note">Latest post</span>
             </div>
 
             <ol class="post-list">
@@ -47,7 +47,7 @@
         </section>
 
         <section class="about" id="about" aria-labelledby="about-title">
-            <h2 class="eyebrow" id="about-title">About this space</h2>
+            <h2 class="section-title" id="about-title">About this space</h2>
             <p>A place to keep the things I learn while making things. This blog is itself a learning project: a small static-site generator, written in Zig. Simple pages, a few words, and room to grow.</p>
         </section>
     </main>
