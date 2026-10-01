@@ -116,24 +116,26 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
-        const new_entry: Entry = Entry.init(entry.path);
+        var new_entry: Entry = Entry.init(entry.path);
 
         // Read file
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
 
         while (true) {
-            const bytes_read: usize = try file.readPositionalAll(io, &read_buffer, offset);
+            const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
             if (bytes_read == 0) break;
             offset += bytes_read;
             used += bytes_read;
             while (true) {
                 const new_line = mem.findScalar(u8, &read_buffer, '\n') orelse break;
-                parse_section(read_buffer[0..new_line], &new_entry, allocator);
+                try parse_section(read_buffer[0..new_line], &new_entry, allocator);
+                mem.copyBackwards(u8, &read_buffer, read_buffer[new_line..]);
+                used -= new_line;
             }
         }
 
-        allocator.realloc(entries, entries.len + 1);
+        entries = try allocator.realloc(entries, entries.len + 1);
         entries[entries.len - 1] = new_entry;
     }
     return entries;
@@ -154,4 +156,10 @@ pub fn main(init: std.process.Init) !void {
 
     const markdown_dir = try Dir.cwd().openDir(init.io, "markdown", .{ .iterate = true });
     defer markdown_dir.close(init.io);
+
+    const entries: []Entry = try create_entries(markdown_dir, init.io, init.arena.allocator());
+    defer init.arena.allocator().free(entries);
+    for (entries) |entry| {
+        print("{s}\n", .{entry.content});
+    }
 }
