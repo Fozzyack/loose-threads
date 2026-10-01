@@ -56,9 +56,10 @@ fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
 }
 
 fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
+    if (section.len == 0) return;
     var count: usize = 0;
     var has_headers = false;
-    while (section[count] == '#') : (count += 1) {
+    while (count < section.len and section[count] == '#') : (count += 1) {
         if (count >= 5) break;
     }
     if (count >= section.len) return error.InvalidLine;
@@ -112,6 +113,19 @@ test "parse_section paragraph" {
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
 }
 
+fn strip_newline(buffer: []u8, used: *usize) void {
+    if (buffer.len == 0) return;
+    var newline_count: usize = 0;
+    for (buffer[0..used.*], 0..used.*) |character, index| {
+        if (character != '\n') {
+            newline_count = index;
+            break;
+        }
+    }
+    mem.copyForwards(u8, buffer, buffer[newline_count..]);
+    used.* -= newline_count;
+}
+
 fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     var walker = try Dir.walk(markdown_dir, allocator);
     defer walker.deinit();
@@ -132,21 +146,17 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
 
         while (true) {
             const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
-            print("{d}\n", .{bytes_read});
             if (bytes_read == 0) break;
             offset += bytes_read;
             used += bytes_read;
-            var newline_count: usize = 0;
-            for (read_buffer, 0..) |character, index| {
-                if (character != '\n') newline_count = index;
-            }
+            strip_newline(&read_buffer, &used);
 
             while (true) {
-                print("{s}\n", .{read_buffer[0..100]});
-                const newline_idx = mem.findScalar(u8, &read_buffer, '\n') orelse break;
+                const newline_idx = mem.findScalar(u8, read_buffer[0..used], '\n') orelse break;
                 try parse_section(read_buffer[0..newline_idx], &new_entry, allocator);
-                mem.copyForwards(u8, &read_buffer, read_buffer[newline_idx..]);
-                used -= newline_idx;
+                mem.copyForwards(u8, &read_buffer, read_buffer[newline_idx + 1 ..]);
+                used -= newline_idx + 1;
+                strip_newline(&read_buffer, &used);
             }
         }
 
