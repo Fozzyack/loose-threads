@@ -3,8 +3,9 @@ const entries = @import("entries.zig");
 const assets = @import("assets.zig");
 const template = @import("templates.zig");
 
-const print = std.debug.print;
 const Dir = std.Io.Dir;
+
+const print = std.debug.print;
 
 /// Recreates `public`, copies CSS from `static`, and prints the names and rendered
 /// content of entries read from `markdown`, using the process arena for allocations.
