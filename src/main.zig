@@ -73,7 +73,7 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
         defer allocator.free(header);
         try entry.add_content(header, allocator);
     }
-    try entry.add_content(section[count .. section.len - 1], allocator);
+    try entry.add_content(section[count..section.len], allocator);
     if (has_headers) {
         const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{count - 1});
         defer allocator.free(close_tag);
@@ -85,10 +85,18 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
     }
     try entry.add_content("\n", allocator);
 }
-
 test "parse_section with header" {
     var entry: Entry = Entry.init("test entry");
-    const section: []const u8 = "## Test header\n";
+    const section: []const u8 = "# Test header";
+    var testing_allocator: std.mem.Allocator = std.testing.allocator;
+    try parse_section(section, &entry, testing_allocator);
+    defer testing_allocator.free(entry.content);
+    try expect(eql(u8, "<h1>Test header</h1>\n", entry.content));
+}
+
+test "parse_section with header 2" {
+    var entry: Entry = Entry.init("test entry");
+    const section: []const u8 = "## Test header";
     var testing_allocator: std.mem.Allocator = std.testing.allocator;
     try parse_section(section, &entry, testing_allocator);
     defer testing_allocator.free(entry.content);
@@ -97,7 +105,7 @@ test "parse_section with header" {
 
 test "parse_section paragraph" {
     var entry: Entry = Entry.init("test entry");
-    const section: []const u8 = "some # test entry!\n";
+    const section: []const u8 = "some # test entry!";
     var testing_allocator: std.mem.Allocator = std.testing.allocator;
     try parse_section(section, &entry, testing_allocator);
     defer testing_allocator.free(entry.content);
@@ -124,13 +132,15 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
 
         while (true) {
             const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
+            print("{d}\n", .{bytes_read});
             if (bytes_read == 0) break;
             offset += bytes_read;
             used += bytes_read;
             while (true) {
+                print("{s}\n", .{read_buffer[0..100]});
                 const new_line = mem.findScalar(u8, &read_buffer, '\n') orelse break;
                 try parse_section(read_buffer[0..new_line], &new_entry, allocator);
-                mem.copyBackwards(u8, &read_buffer, read_buffer[new_line..]);
+                mem.copyForwards(u8, &read_buffer, read_buffer[new_line..]);
                 used -= new_line;
             }
         }
