@@ -133,6 +133,13 @@ fn strip_newline(buffer: []u8, used: *usize) void {
     used.* -= newline_count;
 }
 
+test "strip newline" {
+    var test_buffer: [9]u8 = "\n\n\n\ntest\n".*;
+    var used: usize = test_buffer.len;
+    strip_newline(&test_buffer, &used);
+    try expect(eql(u8, "test\n", test_buffer[0..used]));
+}
+
 fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     var walker = try Dir.walk(markdown_dir, allocator);
     defer walker.deinit();
