@@ -2,7 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 
 pub fn build(b: *std.Build) !void {
-    print(" ______________ BUILDINB _________________", .{});
+    print(" ______________ BUILDING _________________", .{});
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const exe = b.addExecutable(.{
