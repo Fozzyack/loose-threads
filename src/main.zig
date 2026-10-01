@@ -21,6 +21,18 @@ fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     }
 }
 
+fn parse_markdown(markdown_dir: Dir, io: Io, allocator: Allocator) {
+
+    var walker = try Dir.walk(markdown_dir, allocator);
+    defer walker.deinit();
+
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!mem.endsWith(u8, entry.basename, ".md")) continue;
+    }
+
+}
+
 pub fn main(init: std.process.Init) !void {
     Dir.cwd().deleteTree(init.io, "public") catch |err| {
         if (err != error.FileNotFound) return err;
