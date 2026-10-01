@@ -148,7 +148,6 @@ fn get_date(file: File, entry: *Entry, io: Io, allocator: Allocator) !void {
     const content: []u8 = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d:0>2}, {d:0>4}</p>\n", .{ month_str, month_day.day_index + 1, year_day.year });
     defer allocator.free(content);
     try entry.add_content(content, allocator);
-    print("{s}", .{entry.content});
 }
 
 test "markdown file stat" {
@@ -198,11 +197,13 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
-        var new_entry: Entry = try Entry.init(entry.path, allocator);
 
         // Read file
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
+
+        var new_entry: Entry = try Entry.init(entry.path, allocator);
+        try get_date(file, &new_entry, io, allocator);
 
         while (true) {
             const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
