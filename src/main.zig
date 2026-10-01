@@ -27,6 +27,10 @@ const Entry = struct {
         if (self.content.len > 0) allocator.free(self.content);
         self.content = new_content;
     }
+
+    fn deinit(self: *Entry, allocator: Allocator) void {
+        allocator.free(self.content);
+    }
 };
 
 test "create entry" {
@@ -185,6 +189,7 @@ pub fn main(init: std.process.Init) !void {
     const entries: []Entry = try create_entries(markdown_dir, init.io, init.arena.allocator());
     defer init.arena.allocator().free(entries);
     for (entries) |entry| {
+        print("{s}\n", .{entry.name});
         print("{s}\n", .{entry.content});
     }
 }
