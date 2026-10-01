@@ -19,10 +19,14 @@ const Entry = struct {
     name: []const u8,
     content: []const u8 = &.{},
 
+    /// Creates an entry with an allocator-owned copy of `name` and empty content.
+    /// Release the entry with `deinit` using the same allocator.
     fn init(name: []const u8, allocator: Allocator) !Entry {
         return .{ .name = try allocator.dupe(u8, name) };
     }
 
+    /// Appends a copy of `content`, replacing the existing content allocation.
+    /// Use the same allocator that owns the entry's content.
     fn add_content(self: *Entry, content: []const u8, allocator: Allocator) !void {
         const strs: []const []const u8 = &[_][]const u8{ self.content, content };
         const new_content = try mem.concat(allocator, u8, strs);
@@ -30,6 +34,7 @@ const Entry = struct {
         self.content = new_content;
     }
 
+    /// Frees the entry's name and content using their original allocator.
     fn deinit(self: *Entry, allocator: Allocator) void {
         allocator.free(self.name);
         allocator.free(self.content);
@@ -53,6 +58,8 @@ test "add_content" {
     try expect(eql(u8, "This is some test\nanother section\n", entry.content));
 }
 
+/// Recursively copies `.css` files into `public_dir` using their basenames.
+/// Files with matching basenames share the same destination path.
 fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     var walker = try Dir.walk(css_dir, allocator);
     defer walker.deinit();
@@ -64,6 +71,10 @@ fn copy_css(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     }
 }
 
+/// Appends a section as an HTML heading or paragraph followed by a newline.
+/// Recognizes one to five leading `#` characters followed by a space and skips
+/// empty sections. Text is copied without HTML escaping; a section consisting
+/// only of recognized heading markers returns `error.InvalidLine`.
 fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
     if (section.len == 0) return;
     var count: usize = 0;
@@ -122,6 +133,8 @@ test "parse_section paragraph" {
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
 }
 
+/// Appends an HTML post-date paragraph containing the file's access time in UTC,
+/// falling back to its modification time when the access time is unavailable.
 fn get_date(file: File, entry: *Entry, io: Io, allocator: Allocator) !void {
     const file_stat: File.Stat = try file.stat(io);
     const ts: Io.Timestamp = file_stat.atime orelse file_stat.mtime;
@@ -177,6 +190,9 @@ test "markdown file stat" {
     try expect(eql(u8, "<p class=\"post-date\">October 01, 2026 @ 19:49:27 UTC</p>\n", entry.content));
 }
 
+/// Shifts past leading newline bytes before the first non-newline byte in the
+/// used portion of `buffer` and reduces `used` by the number removed.
+/// Leaves all-newline input unchanged; `used` must not exceed `buffer.len`.
 fn strip_newline(buffer: []u8, used: *usize) void {
     if (buffer.len == 0) return;
     var newline_count: usize = 0;
@@ -204,6 +220,10 @@ test "strip newline no newline" {
     try expect(eql(u8, "test\n", test_buffer[0..used]));
 }
 
+/// Recursively reads `.md` files into entries named after their relative paths
+/// without the extension, appending a file date and rendered newline-ended sections.
+/// The caller owns the returned slice and must deinitialize each entry and free
+/// the slice using `allocator`.
 fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     var walker = try Dir.walk(markdown_dir, allocator);
     defer walker.deinit();
@@ -246,6 +266,8 @@ fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
     return entries;
 }
 
+/// Recreates `public`, copies CSS from `static`, and prints the names and rendered
+/// content of entries read from `markdown`, using the process arena for allocations.
 pub fn main(init: std.process.Init) !void {
     Dir.cwd().deleteTree(init.io, "public") catch |err| {
         if (err != error.FileNotFound) return err;
