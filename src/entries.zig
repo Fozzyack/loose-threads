@@ -41,9 +41,9 @@ pub const Entry = struct {
         self.description = try allocator.dupe(u8, description);
     }
 
-    pub fn add_slug(self: *Entry, description: []const u8, allocator: Allocator) !void {
-        if (self.description.len > 0) allocator.free(self.description);
-        self.description = try allocator.dupe(u8, description);
+    pub fn add_slug(self: *Entry, slug: []const u8, allocator: Allocator) !void {
+        if (self.slug.len > 0) allocator.free(self.slug);
+        self.slug = try allocator.dupe(u8, slug);
     }
 
     /// Frees the entry's name and content using their original allocator.
@@ -78,7 +78,6 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
     if (section.len == 0) return;
     var count: usize = 0;
     var has_headers = false;
-    var has_description = false;
     while (count < section.len and section[count] == '#') : (count += 1) {
         if (count >= 5) break;
     }
@@ -190,13 +189,24 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
 
         while (true) {
             const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
-            if (bytes_read == 0) break;
+            if (bytes_read == 0) {
+                if (has_parsed_metadata == false) return error.FailedToParseMetadata;
+                break;
+            }
+
             offset += bytes_read;
             used += bytes_read;
             strip_newline(&read_buffer, &used);
 
             while (true) {
-                if (has_parsed_metadata) {} else {
+                if (!has_parsed_metadata) {
+                    const metadata_start: usize = mem.find(u8, read_buffer[0..used], "---\n") orelse break;
+                    if (metadata_start != 0) return error.IncorrectMetadataDelimiter;
+                    const metadata_end: usize = mem.find(u8, read_buffer[metadata_start + 1 .. used], "\n---\n") orelse break;
+                    print("{d} {d}\n", .{ metadata_start, metadata_end });
+                    has_parsed_metadata = true;
+                    break;
+                } else {
                     const newline_idx = mem.findScalar(u8, read_buffer[0..used], '\n') orelse break;
                     try parse_section(read_buffer[0..newline_idx], &new_entry, allocator);
                     mem.copyForwards(u8, &read_buffer, read_buffer[newline_idx + 1 ..]);
