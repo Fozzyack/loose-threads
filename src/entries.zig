@@ -18,6 +18,7 @@ const print = std.debug.print;
 pub const Entry = struct {
     name: []const u8,
     content: []const u8 = &.{},
+    description: []const u8 = &.{},
 
     /// Creates an entry with an allocator-owned copy of `name` and empty content.
     /// Release the entry with `deinit` using the same allocator.
@@ -32,6 +33,11 @@ pub const Entry = struct {
         const new_content = try mem.concat(allocator, u8, strs);
         if (self.content.len > 0) allocator.free(self.content);
         self.content = new_content;
+    }
+
+    pub fn add_description(self: *Entry, description: []const u8, allocator: Allocator) !void {
+        if (self.description.len > 0) allocator.free(self.description);
+        self.description = try allocator.dupe(u8, description);
     }
 
     /// Frees the entry's name and content using their original allocator.
