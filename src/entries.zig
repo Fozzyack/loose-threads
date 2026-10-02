@@ -50,7 +50,7 @@ pub const Entry = struct {
         self.slug = try allocator.dupe(u8, slug);
     }
 
-    /// Stores an allocator-owned YYYY-MM-DD date and appends its post-date paragraph.
+    /// Stores an allocator-owned YYYY-MM-DD date.
     /// Rejects malformed dates and dates outside the Gregorian calendar.
     pub fn add_date(self: *Entry, date: []const u8, allocator: Allocator) !void {
         if (date.len != 10 or date[4] != '-' or date[7] != '-') return error.InvalidMetadataDate;
@@ -65,40 +65,49 @@ pub const Entry = struct {
         const leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0);
         const days_in_month = [_]u8{ 31, if (leap_year) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
         if (day > days_in_month[month - 1]) return error.InvalidMetadataDate;
-        const paragraph = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d}, {s}</p>\n", .{ months[month - 1], day, date[0..4] });
-        defer allocator.free(paragraph);
         const owned_date = try allocator.dupe(u8, date);
-        errdefer allocator.free(owned_date);
-        try self.add_content(paragraph, allocator);
         if (self.date.len > 0) allocator.free(self.date);
         self.date = owned_date;
     }
 
-    /// Stores decimal Unix seconds and appends a date and time paragraph in UTC.
+    /// Stores decimal Unix seconds without allocating.
     /// Accepts timestamps from 1970-01-01 through 9999-12-31; malformed values
     /// or values outside that range return `error.InvalidMetadataTimestamp`.
-    pub fn add_timestamp(self: *Entry, value: []const u8, allocator: Allocator) !void {
+    pub fn add_timestamp(self: *Entry, value: []const u8) !void {
         if (value.len == 0) return error.InvalidMetadataTimestamp;
         for (value) |character| {
             if (character < '0' or character > '9') return error.InvalidMetadataTimestamp;
         }
         const timestamp = std.fmt.parseInt(u64, value, 10) catch return error.InvalidMetadataTimestamp;
         if (timestamp > 253402300799) return error.InvalidMetadataTimestamp;
-        const seconds: epoch.EpochSeconds = .{ .secs = timestamp };
-        const year_day = seconds.getEpochDay().calculateYearDay();
-        const month_day = year_day.calculateMonthDay();
-        const time = seconds.getDaySeconds();
-        const paragraph = try std.fmt.allocPrint(allocator, "<p class=\"post-timestamp\">{s} {d}, {d} at {d:0>2}:{d:0>2}:{d:0>2} UTC</p>\n", .{
-            months[month_day.month.numeric() - 1],
-            @as(u8, month_day.day_index) + 1,
-            year_day.year,
-            time.getHoursIntoDay(),
-            time.getMinutesIntoHour(),
-            time.getSecondsIntoMinute(),
-        });
-        defer allocator.free(paragraph);
-        try self.add_content(paragraph, allocator);
         self.timestamp = timestamp;
+    }
+
+    /// Appends one post-date paragraph, preferring the timestamp's UTC date and time.
+    /// Falls back to the stored date when no timestamp is present.
+    fn render_date(self: *Entry, allocator: Allocator) !void {
+        if (self.timestamp) |timestamp| {
+            const seconds: epoch.EpochSeconds = .{ .secs = timestamp };
+            const year_day = seconds.getEpochDay().calculateYearDay();
+            const month_day = year_day.calculateMonthDay();
+            const time = seconds.getDaySeconds();
+            const paragraph = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d}, {d} at {d:0>2}:{d:0>2}:{d:0>2} UTC</p>\n", .{
+                months[month_day.month.numeric() - 1],
+                @as(u8, month_day.day_index) + 1,
+                year_day.year,
+                time.getHoursIntoDay(),
+                time.getMinutesIntoHour(),
+                time.getSecondsIntoMinute(),
+            });
+            defer allocator.free(paragraph);
+            try self.add_content(paragraph, allocator);
+        } else if (self.date.len > 0) {
+            const month = try std.fmt.parseInt(u8, self.date[5..7], 10);
+            const day = try std.fmt.parseInt(u8, self.date[8..10], 10);
+            const paragraph = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d}, {s}</p>\n", .{ months[month - 1], day, self.date[0..4] });
+            defer allocator.free(paragraph);
+            try self.add_content(paragraph, allocator);
+        }
     }
 
     /// Frees the entry's metadata and content using their original allocator.
@@ -224,10 +233,10 @@ test "strip newline no newline" {
 /// Accepts `name`, `description`, `slug`, `date`, and `timestamp` keys,
 /// optionally followed by one space. Trims surrounding spaces from values;
 /// strings are allocator-owned copies and timestamps are numeric Unix seconds.
-/// A YYYY-MM-DD date also appends a formatted post-date paragraph to the content;
-/// malformed or impossible dates return `error.InvalidMetadataDate`.
-/// A timestamp also appends a UTC date and time paragraph; malformed or
-/// out-of-range values return `error.InvalidMetadataTimestamp`.
+/// After parsing, appends one post-date paragraph: the timestamp's UTC date and
+/// time if present, otherwise the date. Metadata order does not affect this choice.
+/// Malformed or impossible dates return `error.InvalidMetadataDate`; malformed
+/// or out-of-range timestamps return `error.InvalidMetadataTimestamp`.
 /// Missing separators or newlines return `error.ErrorParsingMetadata`; unknown keys
 /// return `error.InvalidMetadataFlagFound`. Fields already stored remain on failure.
 fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void {
@@ -249,10 +258,11 @@ fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void
             try entry.add_date(value, allocator);
         } else if (eql(u8, buffer[start..separator_idx], "timestamp") or eql(u8, buffer[start..separator_idx], "timestamp ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_timestamp(value, allocator);
+            try entry.add_timestamp(value);
         } else return error.InvalidMetadataFlagFound;
         start = newline_idx + 1;
     }
+    try entry.render_date(allocator);
 }
 
 test "parse_metadata trims values and accepts reordered keys" {
@@ -329,17 +339,34 @@ test "parse_metadata stores Unix timestamp and displays UTC before the body" {
 
     try std.testing.expectEqual(@as(?u64, 1790858096), entry.timestamp);
     try expect(eql(u8, "2026-10-01", entry.date));
-    try expect(eql(u8, "<p class=\"post-date\">October 1, 2026</p>\n<p class=\"post-timestamp\">October 1, 2026 at 12:34:56 UTC</p>\n<p>Welcome to my blog.</p>\n", entry.content));
+    try expect(eql(u8, "<p class=\"post-date\">October 1, 2026 at 12:34:56 UTC</p>\n<p>Welcome to my blog.</p>\n", entry.content));
+}
+
+test "parse_metadata renders one paragraph regardless of date and timestamp order" {
+    const test_allocator = std.testing.allocator;
+    const metadata_orders = [_][]const u8{
+        "date: 2026-10-02\ntimestamp: 1790858096\n",
+        "timestamp: 1790858096\ndate: 2026-10-02\n",
+    };
+    for (metadata_orders) |metadata| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(test_allocator);
+        try parse_metadata(metadata, &entry, test_allocator);
+
+        try expect(eql(u8, "2026-10-02", entry.date));
+        try std.testing.expectEqual(@as(?u64, 1790858096), entry.timestamp);
+        try expect(eql(u8, "<p class=\"post-date\">October 1, 2026 at 12:34:56 UTC</p>\n", entry.content));
+    }
 }
 
 test "parse_metadata converts timestamp boundaries and leap day to UTC" {
     const test_allocator = std.testing.allocator;
     const cases = [_]struct { metadata: []const u8, timestamp: u64, content: []const u8 }{
-        .{ .metadata = "timestamp: 0\n", .timestamp = 0, .content = "<p class=\"post-timestamp\">January 1, 1970 at 00:00:00 UTC</p>\n" },
-        .{ .metadata = "timestamp: 86399\n", .timestamp = 86399, .content = "<p class=\"post-timestamp\">January 1, 1970 at 23:59:59 UTC</p>\n" },
-        .{ .metadata = "timestamp: 86400\n", .timestamp = 86400, .content = "<p class=\"post-timestamp\">January 2, 1970 at 00:00:00 UTC</p>\n" },
-        .{ .metadata = "timestamp: 1709164800\n", .timestamp = 1709164800, .content = "<p class=\"post-timestamp\">February 29, 2024 at 00:00:00 UTC</p>\n" },
-        .{ .metadata = "timestamp: 253402300799\n", .timestamp = 253402300799, .content = "<p class=\"post-timestamp\">December 31, 9999 at 23:59:59 UTC</p>\n" },
+        .{ .metadata = "timestamp: 0\n", .timestamp = 0, .content = "<p class=\"post-date\">January 1, 1970 at 00:00:00 UTC</p>\n" },
+        .{ .metadata = "timestamp: 86399\n", .timestamp = 86399, .content = "<p class=\"post-date\">January 1, 1970 at 23:59:59 UTC</p>\n" },
+        .{ .metadata = "timestamp: 86400\n", .timestamp = 86400, .content = "<p class=\"post-date\">January 2, 1970 at 00:00:00 UTC</p>\n" },
+        .{ .metadata = "timestamp: 1709164800\n", .timestamp = 1709164800, .content = "<p class=\"post-date\">February 29, 2024 at 00:00:00 UTC</p>\n" },
+        .{ .metadata = "timestamp: 253402300799\n", .timestamp = 253402300799, .content = "<p class=\"post-date\">December 31, 9999 at 23:59:59 UTC</p>\n" },
     };
     for (cases) |case| {
         var entry: Entry = .{ .name = &.{} };
