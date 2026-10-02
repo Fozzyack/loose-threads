@@ -30,6 +30,8 @@ pub fn main(init: std.process.Init) !void {
     for (posts) |*post| {
         print("{s}\n", .{post.name});
         print("{s}\n", .{post.content});
+        print("{s}\n", .{post.description});
+        print("{s}\n", .{post.slug});
         defer post.deinit(init.arena.allocator());
     }
 }

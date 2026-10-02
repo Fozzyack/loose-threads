@@ -16,15 +16,15 @@ const eql = std.mem.eql;
 const print = std.debug.print;
 
 pub const Entry = struct {
-    name: []const u8,
+    name: []const u8 = undefined,
     content: []const u8 = &.{},
     description: []const u8 = &.{},
     slug: []const u8 = &.{},
 
     /// Creates an entry with an allocator-owned copy of `name` and empty content.
     /// Release the entry with `deinit` using the same allocator.
-    pub fn init(name: []const u8, allocator: Allocator) !Entry {
-        return .{ .name = try allocator.dupe(u8, name) };
+    pub fn add_name(self: *Entry, name: []const u8, allocator: Allocator) !void {
+        self.name = try allocator.dupe(u8, name);
     }
 
     /// Appends a copy of `content`, replacing the existing content allocation.
@@ -50,6 +50,8 @@ pub const Entry = struct {
     pub fn deinit(self: *Entry, allocator: Allocator) void {
         allocator.free(self.name);
         allocator.free(self.content);
+        allocator.free(self.description);
+        allocator.free(self.slug);
     }
 };
 
@@ -162,6 +164,25 @@ test "strip newline no newline" {
     try expect(eql(u8, "test\n", test_buffer[0..used]));
 }
 
+fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void {
+    var start: usize = 0;
+    for (0..3) |_| {
+        const separator_idx = start + (mem.findScalar(u8, buffer[start..], ':') orelse return error.ErrorParsingMetadata);
+        const newline_idx = start + (mem.findScalar(u8, buffer[start..], '\n') orelse return error.ErrorParsingMetadata);
+        if (eql(u8, buffer[start..separator_idx], "name") or eql(u8, buffer[start..separator_idx], "name ")) {
+            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
+            try entry.add_name(value, allocator);
+        } else if (eql(u8, buffer[start..separator_idx], "description") or eql(u8, buffer[start..separator_idx], "description ")) {
+            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
+            try entry.add_description(value, allocator);
+        } else if (eql(u8, buffer[start..separator_idx], "slug") or eql(u8, buffer[start..separator_idx], "slug ")) {
+            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
+            try entry.add_slug(value, allocator);
+        } else return error.InvalidMetadataFlagFound;
+        start = newline_idx + 1;
+    }
+}
+
 /// Recursively reads `.md` files into entries named after their relative paths
 /// without the extension, appending a file date and rendered newline-ended sections.
 /// The caller owns the returned slice and must deinitialize each entry and free
@@ -185,7 +206,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
 
-        var new_entry: Entry = try Entry.init(entry.path[0 .. entry.path.len - 3], allocator);
+        var new_entry: Entry = .{};
 
         while (true) {
             const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
@@ -202,10 +223,13 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                 if (!has_parsed_metadata) {
                     const metadata_start: usize = mem.find(u8, read_buffer[0..used], "---\n") orelse break;
                     if (metadata_start != 0) return error.IncorrectMetadataDelimiter;
-                    const metadata_end: usize = mem.find(u8, read_buffer[metadata_start + 1 .. used], "\n---\n") orelse break;
+                    const metadata_end: usize = mem.find(u8, read_buffer[0..used], "\n---\n") orelse break;
+                    try parse_metadata(read_buffer[4 .. metadata_end + 1], &new_entry, allocator);
                     print("{d} {d}\n", .{ metadata_start, metadata_end });
+                    mem.copyForwards(u8, &read_buffer, read_buffer[metadata_end + 4 ..]);
+                    used -= (metadata_end + 4);
+                    strip_newline(&read_buffer, &used);
                     has_parsed_metadata = true;
-                    break;
                 } else {
                     const newline_idx = mem.findScalar(u8, read_buffer[0..used], '\n') orelse break;
                     try parse_section(read_buffer[0..newline_idx], &new_entry, allocator);
