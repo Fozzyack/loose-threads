@@ -1,3 +1,9 @@
+---
+name: Hello World
+description: Learning zig by building a small static-site generator.
+slug: getting-started
+---
+
 # Hello World
 Welcome to my blog. I'm learning Zig by building a small static-site generator, one piece at a time.
 

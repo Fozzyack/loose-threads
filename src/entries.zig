@@ -72,6 +72,7 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
     if (section.len == 0) return;
     var count: usize = 0;
     var has_headers = false;
+    var has_description = false;
     while (count < section.len and section[count] == '#') : (count += 1) {
         if (count >= 5) break;
     }
@@ -225,6 +226,8 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
     var offset: usize = 0;
     var used: usize = 0;
     var entries: []Entry = &.{};
+
+    var has_parsed_metadata
 
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
