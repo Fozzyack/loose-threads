@@ -164,6 +164,11 @@ test "strip newline no newline" {
     try expect(eql(u8, "test\n", test_buffer[0..used]));
 }
 
+/// Parses three newline-terminated metadata lines without the `---` delimiters.
+/// Accepts `name`, `description`, and `slug` keys, optionally followed by one space.
+/// Trims surrounding spaces from values and stores allocator-owned copies in `entry`.
+/// Missing separators or newlines return `error.ErrorParsingMetadata`; unknown keys
+/// return `error.InvalidMetadataFlagFound`. Fields already stored remain on failure.
 fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void {
     var start: usize = 0;
     for (0..3) |_| {
@@ -181,6 +186,29 @@ fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void
         } else return error.InvalidMetadataFlagFound;
         start = newline_idx + 1;
     }
+}
+
+test "parse_metadata trims values and accepts reordered keys" {
+    const test_allocator = std.testing.allocator;
+    var entry: Entry = .{};
+    defer entry.deinit(test_allocator);
+    const metadata = "slug :  my-post  \ndescription:  A post with spaces  \nname:  My blog post  \n";
+
+    try parse_metadata(metadata, &entry, test_allocator);
+
+    try expect(eql(u8, "My blog post", entry.name));
+    try expect(eql(u8, "A post with spaces", entry.description));
+    try expect(eql(u8, "my-post", entry.slug));
+}
+
+test "parse_metadata rejects unknown keys and missing delimiters" {
+    const test_allocator = std.testing.allocator;
+    var entry: Entry = .{ .name = &.{} };
+    defer entry.deinit(test_allocator);
+
+    try std.testing.expectError(error.InvalidMetadataFlagFound, parse_metadata("author: Someone\n", &entry, test_allocator));
+    try std.testing.expectError(error.ErrorParsingMetadata, parse_metadata("name without a colon\n", &entry, test_allocator));
+    try std.testing.expectError(error.ErrorParsingMetadata, parse_metadata("name: Missing newline", &entry, test_allocator));
 }
 
 /// Recursively reads `.md` files into entries named after their relative paths
