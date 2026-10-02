@@ -3,6 +3,7 @@ name: Hello World
 description: Learning zig by building a small static-site generator.
 slug: getting-started
 date: 2026-10-01
+timestamp: 1790868870
 ---
 
 # Hello World
