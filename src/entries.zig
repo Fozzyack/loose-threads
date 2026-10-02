@@ -20,6 +20,7 @@ pub const Entry = struct {
     content: []const u8 = &.{},
     description: []const u8 = &.{},
     slug: []const u8 = &.{},
+    date: []const u8 = &.{},
 
     /// Creates an entry with an allocator-owned copy of `name` and empty content.
     /// Release the entry with `deinit` using the same allocator.
@@ -46,12 +47,38 @@ pub const Entry = struct {
         self.slug = try allocator.dupe(u8, slug);
     }
 
-    /// Frees the entry's name and content using their original allocator.
+    /// Stores an allocator-owned YYYY-MM-DD date and appends its post-date paragraph.
+    /// Rejects malformed dates and dates outside the Gregorian calendar.
+    pub fn add_date(self: *Entry, date: []const u8, allocator: Allocator) !void {
+        if (date.len != 10 or date[4] != '-' or date[7] != '-') return error.InvalidMetadataDate;
+        for (date, 0..) |character, index| {
+            if (index == 4 or index == 7) continue;
+            if (character < '0' or character > '9') return error.InvalidMetadataDate;
+        }
+        const year = try std.fmt.parseInt(u16, date[0..4], 10);
+        const month = try std.fmt.parseInt(u8, date[5..7], 10);
+        const day = try std.fmt.parseInt(u8, date[8..10], 10);
+        if (year == 0 or month == 0 or month > 12 or day == 0) return error.InvalidMetadataDate;
+        const leap_year = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0);
+        const days_in_month = [_]u8{ 31, if (leap_year) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+        if (day > days_in_month[month - 1]) return error.InvalidMetadataDate;
+        const months = [_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
+        const paragraph = try std.fmt.allocPrint(allocator, "<p class=\"post-date\">{s} {d}, {s}</p>\n", .{ months[month - 1], day, date[0..4] });
+        defer allocator.free(paragraph);
+        const owned_date = try allocator.dupe(u8, date);
+        errdefer allocator.free(owned_date);
+        try self.add_content(paragraph, allocator);
+        if (self.date.len > 0) allocator.free(self.date);
+        self.date = owned_date;
+    }
+
+    /// Frees the entry's metadata and content using their original allocator.
     pub fn deinit(self: *Entry, allocator: Allocator) void {
         allocator.free(self.name);
         allocator.free(self.content);
         allocator.free(self.description);
         allocator.free(self.slug);
+        allocator.free(self.date);
     }
 };
 
@@ -164,14 +191,16 @@ test "strip newline no newline" {
     try expect(eql(u8, "test\n", test_buffer[0..used]));
 }
 
-/// Parses three newline-terminated metadata lines without the `---` delimiters.
-/// Accepts `name`, `description`, and `slug` keys, optionally followed by one space.
+/// Parses newline-terminated metadata lines without the `---` delimiters.
+/// Accepts `name`, `description`, `slug`, and `date` keys, optionally followed by one space.
 /// Trims surrounding spaces from values and stores allocator-owned copies in `entry`.
+/// A YYYY-MM-DD date also appends a formatted post-date paragraph to the content;
+/// malformed or impossible dates return `error.InvalidMetadataDate`.
 /// Missing separators or newlines return `error.ErrorParsingMetadata`; unknown keys
 /// return `error.InvalidMetadataFlagFound`. Fields already stored remain on failure.
 fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void {
     var start: usize = 0;
-    for (0..3) |_| {
+    while (start < buffer.len) {
         const separator_idx = start + (mem.findScalar(u8, buffer[start..], ':') orelse return error.ErrorParsingMetadata);
         const newline_idx = start + (mem.findScalar(u8, buffer[start..], '\n') orelse return error.ErrorParsingMetadata);
         if (eql(u8, buffer[start..separator_idx], "name") or eql(u8, buffer[start..separator_idx], "name ")) {
@@ -183,6 +212,9 @@ fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void
         } else if (eql(u8, buffer[start..separator_idx], "slug") or eql(u8, buffer[start..separator_idx], "slug ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
             try entry.add_slug(value, allocator);
+        } else if (eql(u8, buffer[start..separator_idx], "date") or eql(u8, buffer[start..separator_idx], "date ")) {
+            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
+            try entry.add_date(value, allocator);
         } else return error.InvalidMetadataFlagFound;
         start = newline_idx + 1;
     }
@@ -209,6 +241,46 @@ test "parse_metadata rejects unknown keys and missing delimiters" {
     try std.testing.expectError(error.InvalidMetadataFlagFound, parse_metadata("author: Someone\n", &entry, test_allocator));
     try std.testing.expectError(error.ErrorParsingMetadata, parse_metadata("name without a colon\n", &entry, test_allocator));
     try std.testing.expectError(error.ErrorParsingMetadata, parse_metadata("name: Missing newline", &entry, test_allocator));
+}
+
+test "parse_metadata stores date and generates post-date content before the body" {
+    const test_allocator = std.testing.allocator;
+    var entry: Entry = .{ .name = &.{} };
+    defer entry.deinit(test_allocator);
+    const metadata = "name: Hello World\ndescription: My first post\nslug: hello-world\ndate :  2026-10-01  \n";
+
+    try parse_metadata(metadata, &entry, test_allocator);
+    try parse_section("Welcome to my blog.", &entry, test_allocator);
+
+    try expect(eql(u8, "2026-10-01", entry.date));
+    try expect(eql(u8, "<p class=\"post-date\">October 1, 2026</p>\n<p>Welcome to my blog.</p>\n", entry.content));
+}
+
+test "parse_metadata validates date format and leap years" {
+    const test_allocator = std.testing.allocator;
+    var entry: Entry = .{ .name = &.{} };
+    defer entry.deinit(test_allocator);
+
+    const invalid_dates = [_][]const u8{
+        "date: 2026-2-01\n",
+        "date: 2026/10/01\n",
+        "date: abcd-10-01\n",
+        "date: 2026-00-01\n",
+        "date: 2026-13-01\n",
+        "date: 2026-10-00\n",
+        "date: 2026-04-31\n",
+        "date: 2026-02-29\n",
+        "date: 1900-02-29\n",
+    };
+    for (invalid_dates) |metadata| {
+        try std.testing.expectError(error.InvalidMetadataDate, parse_metadata(metadata, &entry, test_allocator));
+        try expect(entry.date.len == 0);
+        try expect(entry.content.len == 0);
+    }
+
+    try parse_metadata("date: 2000-02-29\n", &entry, test_allocator);
+    try expect(eql(u8, "2000-02-29", entry.date));
+    try expect(eql(u8, "<p class=\"post-date\">February 29, 2000</p>\n", entry.content));
 }
 
 /// Recursively reads `.md` files into entries named after their relative paths
