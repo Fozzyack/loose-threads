@@ -16,11 +16,23 @@ const eql = std.mem.eql;
 
 const print = std.debug.print;
 
+pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) !void {
+    var file = try templates_dir.openFile(io, template_name, .{});
+    defer file.close(io);
 
-pub fn create_homepage(posts: []entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io,allocator: Allocator) !void {
+    var page_buffer: []u8 = &.{};
+    var read_buffer: [4096]u8 = undefined;
+    var offset: usize = 0;
 
-    for(posts) | post | {
-        
+    while (true) {
+        const bytes_read = try file.readPositionalAll(io, &read_buffer, offset);
+        if (bytes_read == 0) break;
+        offset += bytes_read;
+        try allocator.realloc(page_buffer, page_buffer.len + bytes_read);
+        @memmove(&page_buffer, &read_buffer);
     }
+}
 
+pub fn create_homepage(posts: []entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    for (posts) |post| {}
 }
