@@ -21,7 +21,7 @@ pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocato
     defer file.close(io);
 
     var page_buffer: []u8 = &.{};
-    var read_buffer: [4096]u8 = undefined;
+    var read_buffer: [8192]u8 = undefined;
     var offset: usize = 0;
 
     while (true) {
