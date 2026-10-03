@@ -16,7 +16,9 @@ const eql = std.mem.eql;
 
 const print = std.debug.print;
 
-pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) ![]u8 {
+const POST_LIST_INSERT: []const u8 = "{{ post_list }}";
+
+fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) ![]u8 {
     var file = try templates_dir.openFile(io, template_name, .{});
     defer file.close(io);
 
@@ -41,4 +43,11 @@ test "read_html" {
 
     const page_html = try read_html("index.html", template_dir, io, test_allocator);
     defer test_allocator.free(page_html);
+}
+
+pub fn create_homepage(template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    const home_page = try read_html("index.html", template_dir, io, allocator);
+    defer allocator.free(home_page);
+
+    const injection_location = mem.find(u8, home_page, POST_LIST_INSERT) orelse return error.CannotFundInjectionPoint;
 }
