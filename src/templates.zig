@@ -17,15 +17,10 @@ const eql = std.mem.eql;
 const print = std.debug.print;
 
 
+pub fn create_homepage(posts: []entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io,allocator: Allocator) !void {
 
-pub fn create_homepage(posts: []entries.Entry, public_dir: Dir, io: Io, allocator: Allocator) !void {
-    var file = try public_dir.createFile(io, "index.html", .{ .read = true, .exclusive = true});
-
-    var post_list_html: []u8 = &.{};
-
-    for (posts) | post | {
-        post_list_html;
+    for(posts) | post | {
+        
     }
-
 
 }
