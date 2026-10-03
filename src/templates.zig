@@ -141,29 +141,24 @@ pub fn create_homepage(posts: []const entries.Entry, template_dir: Dir, public_d
     const home_page = try read_html("index.html", template_dir, io, allocator);
     defer allocator.free(home_page);
 
-    var buffer: []u8 = &.{};
+    var output : Io.Writer.Allocating = .init(allocator);
+    var writer = &output.writer;
+    defer output.deinit();
+
     const injection_location = mem.find(u8, home_page, POST_LIST_INSERT) orelse return error.CannotFundInjectionPoint;
-    buffer = try allocator.realloc(buffer, injection_location);
-    defer allocator.free(buffer);
+    try writer.writeAll(home_page[0..injection_location]);
 
-    @memcpy(buffer, home_page[0..injection_location]);
-
-    var old_len = buffer.len;
     for (posts) |post| {
         const list_entry = try create_homepage_post(post, allocator);
         defer allocator.free(list_entry);
-        buffer = try allocator.realloc(buffer, buffer.len + list_entry.len);
-        @memcpy(buffer[old_len..], list_entry);
-        old_len = buffer.len;
+        try writer.writeAll(list_entry);
     }
-    const remainder = home_page.len - (injection_location + POST_LIST_INSERT.len);
-    buffer = try allocator.realloc(buffer, buffer.len + remainder);
-    @memcpy(buffer[old_len..], home_page[injection_location + POST_LIST_INSERT.len ..]);
+    try writer.writeAll(home_page[injection_location + POST_LIST_INSERT.len..]);
 
     var file = try public_dir.createFile(io, "index.html", .{ .read = true });
     defer file.close(io);
 
-    try file.writePositionalAll(io, buffer, 0);
+    try file.writePositionalAll(io, output.written(), 0);
 }
 
 test "create_homepage" {
@@ -186,3 +181,8 @@ test "create_homepage" {
     const posts = [_]entries.Entry{ post, post2 };
     try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
 }
+
+// pub fn create_post_page(post entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+//
+//
+// }
