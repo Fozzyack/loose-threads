@@ -36,6 +36,9 @@ fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: A
     return page_buffer;
 }
 
+fn create_homepage_html(posts: []entries.Entry) !void {
+}
+
 test "read_html" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
@@ -45,9 +48,26 @@ test "read_html" {
     defer test_allocator.free(page_html);
 }
 
-pub fn create_homepage(template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+pub fn create_homepage(posts: []entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    _ = public_dir;
     const home_page = try read_html("index.html", template_dir, io, allocator);
     defer allocator.free(home_page);
 
+    var buffer: []u8 = &.{};
     const injection_location = mem.find(u8, home_page, POST_LIST_INSERT) orelse return error.CannotFundInjectionPoint;
+    buffer = try allocator.realloc(buffer, injection_location);
+    defer allocator.free(buffer);
+
+    @memcpy(buffer, home_page[0..injection_location]);
+    print("{s}\n", .{home_page});
+    print("{s}\n", .{buffer[0..]});
+}
+
+test "create_homepage" {
+    const io = std.testing.io;
+    const test_allocator = std.testing.allocator;
+    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
+    const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
+    var posts : []entries.Entry = undefined
+    try create_homepage(posts, template_dir, public_dir, io, test_allocator);
 }
