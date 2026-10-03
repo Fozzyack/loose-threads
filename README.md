@@ -1,15 +1,12 @@
 # A blog built with Zig
 
-A personal blog and a learning project: a single-threaded, dependency-free static-site generator built with **Zig 0.16.0**. The goal is to publish generated files through Cloudflare Pages.
+A learning project: a single-threaded, dependency-free static-site generator built with **Zig 0.16.0**, intended for Cloudflare Pages.
 
 ## Current status
 
-- Reads `.md` posts from `markdown/` and parses their metadata.
-- Renders headings (`#`–`#####`) and paragraphs, skipping blank lines.
-- Stores dates and Unix timestamps, rendering one date paragraph with UTC date and time when a timestamp is present.
-- Recreates `public/`, copies CSS from `static/`, and prints parsed posts to the terminal.
-
-HTML page generation and template substitution are still in progress. `goal/` contains the hand-written reference site.
+- Reads posts from `markdown/` and renders basic headings and paragraphs.
+- Uses `templates/` to generate a homepage and a `{slug}.html` page per post.
+- Displays dates, preferring UTC timestamps, and copies CSS from `static/`.
 
 ## Build and run
 
@@ -20,23 +17,15 @@ zig build
 ./zig-out/bin/blog-generator
 ```
 
-Running the generator deletes and recreates `public/`; treat it as disposable output. There is no `zig build run` or `zig build generate` step yet.
+The executable is built into `zig-out/bin/`. Running it **deletes and recreates `public/`**, the generated site directory.
 
-### Optional HTML formatting
-
-After generating pages, format all HTML files in `public/` with one Prettier invocation:
+Optionally format generated HTML (requires `prettier` on your `PATH`):
 
 ```sh
 zig build format-html
 ```
 
-This requires `prettier` on your `PATH` (for example, install it with `npm install --global prettier`). It is optional: normal builds and the generator remain dependency-free. The step formats existing output only; it does not generate pages or recreate `public/`. Prettier reports an error if there are no HTML files yet.
-
-Run the metadata tests:
-
-```sh
-zig test src/entries.zig --test-filter parse_metadata
-```
+Formatting updates existing files only; it does not build or generate the site.
 
 ## Post format
 
@@ -54,12 +43,15 @@ timestamp: 1790858096
 Welcome to my blog.
 ```
 
-The header is a small project-specific `key: value` format, not full YAML. Keys can appear in any order; surrounding spaces are trimmed from values. Use newline-terminated lines and `---` delimiters on their own lines.
+Metadata is project-specific, not full YAML. Keep `---` delimiters on their own lines and end body lines with newlines. Dates and timestamps are optional; timestamps use Unix seconds and take precedence over dates.
 
-`date` accepts valid `YYYY-MM-DD` dates. `timestamp` accepts Unix **seconds**, from 1970 through 9999, and is stored as a number. Both are optional: when both are present, the timestamp takes precedence for display, producing a single paragraph such as **October 1, 2026 at 12:34:56 UTC**. Without a timestamp, the date is displayed on its own.
+## Tests
+
+```sh
+zig test src/entries.zig
+zig test src/templates.zig --test-filter create_homepage_post
+```
 
 ## Next steps
 
-- HTML escaping and template substitution.
-- Individual post pages and a homepage sorted by date.
-- More Markdown features and deployment to Cloudflare Pages.
+Date sorting, richer Markdown support, complete HTML escaping, and Cloudflare Pages deployment.
