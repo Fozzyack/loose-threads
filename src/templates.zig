@@ -27,9 +27,9 @@ pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocato
     while (true) {
         const bytes_read = try file.readPositionalAll(io, &read_buffer, offset);
         if (bytes_read == 0) break;
-        offset += bytes_read;
         try allocator.realloc(page_buffer, page_buffer.len + bytes_read);
-        @memmove(&page_buffer, &read_buffer);
+        @memmove(page_buffer[offset .. offset + bytes_read], read_buffer[0..bytes_read]);
+        offset += bytes_read;
     }
 }
 
