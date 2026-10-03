@@ -1,7 +1,7 @@
 const std = @import("std");
 const entries = @import("entries.zig");
 const assets = @import("assets.zig");
-// const template = @import("templates.zig");
+const template = @import("templates.zig");
 
 const Dir = std.Io.Dir;
 
@@ -30,6 +30,8 @@ pub fn main(init: std.process.Init) !void {
 
     const posts: []entries.Entry = try entries.create_entries(markdown_dir, init.io, init.arena.allocator());
     defer init.arena.allocator().free(posts);
+    try template.create_homepage(posts, templates_dir, public_dir, init.io, init.arena.allocator());
+
     for (posts) |*post| {
         print("{s}\n", .{post.name});
         print("{s}\n", .{post.content});

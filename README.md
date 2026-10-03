@@ -22,6 +22,16 @@ zig build
 
 Running the generator deletes and recreates `public/`; treat it as disposable output. There is no `zig build run` or `zig build generate` step yet.
 
+### Optional HTML formatting
+
+After generating pages, format all HTML files in `public/` with one Prettier invocation:
+
+```sh
+zig build format-html
+```
+
+This requires `prettier` on your `PATH` (for example, install it with `npm install --global prettier`). It is optional: normal builds and the generator remain dependency-free. The step formats existing output only; it does not generate pages or recreate `public/`. Prettier reports an error if there are no HTML files yet.
+
 Run the metadata tests:
 
 ```sh

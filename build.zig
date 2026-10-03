@@ -14,4 +14,9 @@ pub fn build(b: *std.Build) !void {
     });
 
     b.installArtifact(exe);
+
+    const format_html = b.addSystemCommand(&.{ "prettier", "--write", "public/**/*.html" });
+    format_html.setCwd(b.path("."));
+    const format_step = b.step("format-html", "Format generated HTML in public/ with Prettier (optional)");
+    format_step.dependOn(&format_html.step);
 }
