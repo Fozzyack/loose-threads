@@ -1,0 +1,2 @@
+# Generated HTML in public/ is intentionally formatted by zig build format-html.
+# This file replaces Prettier's default .gitignore exclusions for that step.
