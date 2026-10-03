@@ -25,6 +25,9 @@ pub fn main(init: std.process.Init) !void {
     const markdown_dir = try Dir.cwd().openDir(init.io, "markdown", .{ .iterate = true });
     defer markdown_dir.close(init.io);
 
+    const templates_dir = try Dir.cwd().openDir(init.io, "templates", .{ .iterate = true });
+    defer templates_dir.close(init.io);
+
     const posts: []entries.Entry = try entries.create_entries(markdown_dir, init.io, init.arena.allocator());
     defer init.arena.allocator().free(posts);
     for (posts) |*post| {
