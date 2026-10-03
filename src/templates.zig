@@ -17,24 +17,7 @@ const eql = std.mem.eql;
 const print = std.debug.print;
 
 const POST_LIST_INSERT: []const u8 = "{{ post_list }}";
-
-fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) ![]u8 {
-    var file = try templates_dir.openFile(io, template_name, .{});
-    defer file.close(io);
-
-    var page_buffer: []u8 = &.{};
-    var read_buffer: [8192]u8 = undefined;
-    var offset: usize = 0;
-
-    while (true) {
-        const bytes_read = try file.readPositionalAll(io, &read_buffer, offset);
-        if (bytes_read == 0) break;
-        page_buffer = try allocator.realloc(page_buffer, page_buffer.len + bytes_read);
-        @memmove(page_buffer[offset .. offset + bytes_read], read_buffer[0..bytes_read]);
-        offset += bytes_read;
-    }
-    return page_buffer;
-}
+const POST_CONTENT: []const u8 = "{{ content }}";
 
 fn create_homepage_post(post: entries.Entry, allocator: Allocator) ![]u8 {
     var output: Io.Writer.Allocating = .init(allocator);
@@ -128,6 +111,25 @@ test "create_homepage_post omits missing dates and rejects invalid dates" {
     }, allocator));
 }
 
+fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) ![]u8 {
+    var file = try templates_dir.openFile(io, template_name, .{});
+    defer file.close(io);
+
+    var page_buffer: []u8 = &.{};
+    var read_buffer: [8192]u8 = undefined;
+    var offset: usize = 0;
+
+    while (true) {
+        const bytes_read = try file.readPositionalAll(io, &read_buffer, offset);
+        if (bytes_read == 0) break;
+        page_buffer = try allocator.realloc(page_buffer, page_buffer.len + bytes_read);
+        @memmove(page_buffer[offset .. offset + bytes_read], read_buffer[0..bytes_read]);
+        offset += bytes_read;
+    }
+    return page_buffer;
+}
+
+
 test "read_html" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
@@ -142,10 +144,10 @@ pub fn create_homepage(posts: []const entries.Entry, template_dir: Dir, public_d
     defer allocator.free(home_page);
 
     var output : Io.Writer.Allocating = .init(allocator);
-    var writer = &output.writer;
     defer output.deinit();
+    var writer = &output.writer;
 
-    const injection_location = mem.find(u8, home_page, POST_LIST_INSERT) orelse return error.CannotFundInjectionPoint;
+    const injection_location = mem.find(u8, home_page, POST_LIST_INSERT) orelse return error.CannotFindInjectionPoint;
     try writer.writeAll(home_page[0..injection_location]);
 
     for (posts) |post| {
@@ -167,22 +169,98 @@ test "create_homepage" {
     const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
     const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
     var post = entries.Entry{};
+    defer post.deinit(test_allocator);
     try post.add_name("test_name", test_allocator);
     try post.add_description("Some description here", test_allocator);
     try post.add_timestamp("1791014010");
     try post.add_slug("test-name", test_allocator);
-    defer post.deinit(test_allocator);
     var post2 = entries.Entry{};
+    defer post2.deinit(test_allocator);
     try post2.add_name("test_post_2", test_allocator);
     try post2.add_description("another post", test_allocator);
     try post2.add_timestamp("1791014300");
     try post2.add_slug("test-2", test_allocator);
-    defer post2.deinit(test_allocator);
     const posts = [_]entries.Entry{ post, post2 };
     try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
 }
 
-// pub fn create_post_page(post entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
-//
-//
-// }
+fn create_post_page(post: entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    const post_html = try read_html("page.html", template_dir,io, allocator);
+    defer allocator.free(post_html);
+
+
+    var output: Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    var writer = &output.writer;
+
+    const injection_location: usize = mem.find(u8, post_html, POST_CONTENT) orelse return error.CannotFindInjectionPoint;
+
+    try writer.writeAll(post_html[0..injection_location]);
+    try writer.writeAll(post.content);
+    try writer.writeAll(post_html[injection_location + POST_CONTENT.len..]);
+
+    const filename = try std.fmt.allocPrint(allocator, "{s}.html", .{post.slug});
+    defer allocator.free(filename);
+    var file = try public_dir.createFile(io, filename, .{ .read = true });
+    defer file.close(io);
+
+    try file.writePositionalAll(io, output.written(), 0);
+
+}
+
+test "create_post_page" {
+    const io = std.testing.io;
+    const test_allocator = std.testing.allocator;
+    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
+    const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
+    var post = entries.Entry{};
+    defer post.deinit(test_allocator);
+    try post.add_name("test_name", test_allocator);
+    try post.add_description("Some description here", test_allocator);
+    try post.add_timestamp("1791014010");
+    try post.add_slug("test-name", test_allocator);
+    try create_post_page(post, template_dir, public_dir, io, test_allocator);
+}
+
+pub fn create_posts(posts: []const entries.Entry, template_dir: Dir, public_dir: Dir, io:Io, allocator:Allocator) !void {
+    for (posts) |post| {
+        try create_post_page(post, template_dir, public_dir, io, allocator);
+    }
+}
+
+test "create_posts" {
+    const io = std.testing.io;
+    const test_allocator = std.testing.allocator;
+    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
+    const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
+    var post = entries.Entry{};
+    defer post.deinit(test_allocator);
+    try post.add_name("test_name", test_allocator);
+    try post.add_description("Some description here", test_allocator);
+    try post.add_timestamp("1791014010");
+    try post.add_content("Some content here", test_allocator);
+    try post.add_slug("test-name", test_allocator);
+    var post2 = entries.Entry{};
+    defer post2.deinit(test_allocator);
+    try post2.add_name("test_post_2", test_allocator);
+    try post2.add_description("another post", test_allocator);
+    try post2.add_timestamp("1791014300");
+    try post2.add_content("Some content here", test_allocator);
+    try post2.add_slug("test-2", test_allocator);
+    const posts = [_]entries.Entry{ post, post2 };
+    try create_posts(&posts, template_dir, public_dir, io, test_allocator);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
