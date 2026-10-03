@@ -49,6 +49,7 @@ Metadata is project-specific, not full YAML. Keep `---` delimiters on their own 
 
 ```sh
 zig test src/entries.zig
+zig test src/parser.zig
 zig test src/templates.zig --test-filter create_homepage_post
 ```
 

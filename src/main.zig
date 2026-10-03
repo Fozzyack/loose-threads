@@ -1,10 +1,10 @@
 const std = @import("std");
 const entries = @import("entries.zig");
+const parser = @import("parser.zig");
 const assets = @import("assets.zig");
 const template = @import("templates.zig");
 
 const Dir = std.Io.Dir;
-
 
 /// Recreates `public`, copies CSS from `static`, and prints the names and rendered
 /// content of entries read from `markdown`, using the process arena for allocations.
@@ -27,10 +27,9 @@ pub fn main(init: std.process.Init) !void {
     const templates_dir = try Dir.cwd().openDir(init.io, "templates", .{ .iterate = true });
     defer templates_dir.close(init.io);
 
-    const posts: []entries.Entry = try entries.create_entries(markdown_dir, init.io, init.arena.allocator());
+    const posts: []entries.Entry = try parser.create_entries(markdown_dir, init.io, init.arena.allocator());
     defer init.arena.allocator().free(posts);
 
     try template.create_homepage(posts, templates_dir, public_dir, init.io, init.arena.allocator());
     try template.create_posts(posts, templates_dir, public_dir, init.io, init.arena.allocator());
-
 }
