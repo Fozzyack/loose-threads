@@ -446,13 +446,14 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     try parse_metadata(read_buffer[4 .. metadata_end + 1], &new_entry, allocator);
                     print("{d} {d}\n", .{ metadata_start, metadata_end });
                     mem.copyForwards(u8, &read_buffer, read_buffer[metadata_end + 4 ..]);
+                    @memmove(read_buffer[0 .. used - (metadata_end + 4)], read_buffer[metadata_end + 4 .. used]);
                     used -= (metadata_end + 4);
                     strip_newline(&read_buffer, &used);
                     has_parsed_metadata = true;
                 } else {
                     const newline_idx = mem.findScalar(u8, read_buffer[0..used], '\n') orelse break;
                     try parse_section(read_buffer[0..newline_idx], &new_entry, allocator);
-                    mem.copyForwards(u8, &read_buffer, read_buffer[newline_idx + 1 ..]);
+                    @memmove(read_buffer[0 .. used - (newline_idx + 1)], read_buffer[newline_idx + 1 .. used]);
                     used -= newline_idx + 1;
                     strip_newline(&read_buffer, &used);
                 }
