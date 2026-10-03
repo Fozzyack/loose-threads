@@ -137,9 +137,7 @@ test "read_html" {
     defer test_allocator.free(page_html);
 }
 
-pub fn create_homepage(posts: []entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
-    _ = public_dir;
-    _ = posts;
+pub fn create_homepage(posts: []const entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     const home_page = try read_html("index.html", template_dir, io, allocator);
     defer allocator.free(home_page);
 
@@ -149,8 +147,23 @@ pub fn create_homepage(posts: []entries.Entry, template_dir: Dir, public_dir: Di
     defer allocator.free(buffer);
 
     @memcpy(buffer, home_page[0..injection_location]);
-    print("{s}\n", .{home_page});
-    print("{s}\n", .{buffer[0..]});
+
+    var old_len = buffer.len;
+    for (posts) |post| {
+        const list_entry = try create_homepage_post(post, allocator);
+        defer allocator.free(list_entry);
+        buffer = try allocator.realloc(buffer, buffer.len + list_entry.len);
+        @memcpy(buffer[old_len..], list_entry);
+        old_len = buffer.len;
+    }
+    const remainder = home_page.len - (injection_location + POST_LIST_INSERT.len);
+    buffer = try allocator.realloc(buffer, buffer.len + remainder);
+    @memcpy(buffer[old_len..], home_page[injection_location + POST_LIST_INSERT.len ..]);
+
+    var file = try public_dir.createFile(io, "index.html", .{ .read = true });
+    defer file.close(io);
+
+    try file.writePositionalAll(io, buffer, 0);
 }
 
 test "create_homepage" {
@@ -158,6 +171,18 @@ test "create_homepage" {
     const test_allocator = std.testing.allocator;
     const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
     const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
-    const posts: []entries.Entry = undefined;
-    try create_homepage(posts, template_dir, public_dir, io, test_allocator);
+    var post = entries.Entry{};
+    try post.add_name("test_name", test_allocator);
+    try post.add_description("Some description here", test_allocator);
+    try post.add_timestamp("1791014010");
+    try post.add_slug("test-name", test_allocator);
+    defer post.deinit(test_allocator);
+    var post2 = entries.Entry{};
+    try post2.add_name("test_post_2", test_allocator);
+    try post2.add_description("another post", test_allocator);
+    try post2.add_timestamp("1791014300");
+    try post2.add_slug("test-2", test_allocator);
+    defer post2.deinit(test_allocator);
+    const posts = [_]entries.Entry{ post, post2 };
+    try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
 }
