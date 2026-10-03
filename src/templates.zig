@@ -16,7 +16,7 @@ const eql = std.mem.eql;
 
 const print = std.debug.print;
 
-pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) !void {
+pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) ![]u8 {
     var file = try templates_dir.openFile(io, template_name, .{});
     defer file.close(io);
 
@@ -31,6 +31,7 @@ pub fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocato
         @memmove(page_buffer[offset .. offset + bytes_read], read_buffer[0..bytes_read]);
         offset += bytes_read;
     }
+    return page_buffer;
 }
 
 pub fn create_homepage(posts: []entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
