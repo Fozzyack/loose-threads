@@ -122,14 +122,16 @@ pub const Entry = struct {
 
 test "create entry" {
     const test_allocator = std.testing.allocator;
-    var entry: Entry = try Entry.init("test entry", test_allocator);
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     try expect(eql(u8, "test entry", entry.name));
 }
 
 test "add_content" {
     const test_allocator = std.testing.allocator;
-    var entry: Entry = try Entry.init("test entry", test_allocator);
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     try entry.add_content("This is some test\n", test_allocator);
     try expect(eql(u8, "This is some test\n", entry.content));
@@ -174,7 +176,8 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
 }
 test "parse_section with header" {
     const test_allocator: std.mem.Allocator = std.testing.allocator;
-    var entry: Entry = try Entry.init("test entry", test_allocator);
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     const section: []const u8 = "# Test header";
     try parse_section(section, &entry, test_allocator);
@@ -183,7 +186,8 @@ test "parse_section with header" {
 
 test "parse_section with header 2" {
     const test_allocator: std.mem.Allocator = std.testing.allocator;
-    var entry: Entry = try Entry.init("test entry", test_allocator);
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     const section: []const u8 = "## Test header";
     try parse_section(section, &entry, test_allocator);
@@ -192,7 +196,8 @@ test "parse_section with header 2" {
 
 test "parse_section paragraph" {
     const test_allocator: std.mem.Allocator = std.testing.allocator;
-    var entry: Entry = try Entry.init("test entry", test_allocator);
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     const section: []const u8 = "some # test entry!";
     try parse_section(section, &entry, test_allocator);
@@ -211,7 +216,7 @@ fn strip_newline(buffer: []u8, used: *usize) void {
             break;
         }
     }
-    mem.copyForwards(u8, buffer, buffer[newline_count..]);
+    @memmove(buffer[0 .. used.* - newline_count], buffer[newline_count..used.*]);
     used.* -= newline_count;
 }
 
