@@ -460,14 +460,14 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
     var walker = try Dir.walk(markdown_dir, allocator);
     defer walker.deinit();
 
-    var read_buffer: [8192]u8 = undefined;
-    var offset: usize = 0;
-    var used: usize = 0;
     var entries: []Entry = &.{};
 
-    var has_parsed_metadata: bool = false;
-
     while (try walker.next(io)) |entry| {
+        var read_buffer: [8192]u8 = undefined;
+        var has_parsed_metadata: bool = false;
+        var offset: usize = 0;
+        var used: usize = 0;
+
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
 
