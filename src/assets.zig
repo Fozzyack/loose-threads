@@ -4,7 +4,6 @@ const Dir = Io.Dir;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const print = std.debug.print;
 
 /// Recursively copies `.css` files into `public_dir` using their basenames.
 /// Files with matching basenames share the same destination path.

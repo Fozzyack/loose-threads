@@ -13,8 +13,6 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 
-const print = std.debug.print;
-
 const months = [_][]const u8{ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" };
 
 pub const Entry = struct {
@@ -496,7 +494,6 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     if (metadata_start != 0) return error.IncorrectMetadataDelimiter;
                     const metadata_end: usize = mem.find(u8, read_buffer[0..used], "\n---\n") orelse break;
                     try parse_metadata(read_buffer[4 .. metadata_end + 1], &new_entry, allocator);
-                    print("{d} {d}\n", .{ metadata_start, metadata_end });
                     mem.copyForwards(u8, &read_buffer, read_buffer[metadata_end + 4 ..]);
                     @memmove(read_buffer[0 .. used - (metadata_end + 4)], read_buffer[metadata_end + 4 .. used]);
                     used -= (metadata_end + 4);

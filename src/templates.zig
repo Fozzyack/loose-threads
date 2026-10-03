@@ -14,8 +14,6 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 
-const print = std.debug.print;
-
 const POST_LIST_INSERT: []const u8 = "{{ post_list }}";
 const POST_CONTENT: []const u8 = "{{ content }}";
 
