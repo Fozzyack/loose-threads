@@ -139,8 +139,8 @@ test "read_html" {
     defer test_allocator.free(page_html);
 }
 
-pub fn create_homepage(posts: []const entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
-    const home_page = try read_html("index.html", template_dir, io, allocator);
+pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    const home_page = try read_html("index.html", templates_dir, io, allocator);
     defer allocator.free(home_page);
 
     var output : Io.Writer.Allocating = .init(allocator);
@@ -184,8 +184,8 @@ test "create_homepage" {
     try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
 }
 
-fn create_post_page(post: entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
-    const post_html = try read_html("page.html", template_dir,io, allocator);
+fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    const post_html = try read_html("page.html", templates_dir,io, allocator);
     defer allocator.free(post_html);
 
 
@@ -222,9 +222,9 @@ test "create_post_page" {
     try create_post_page(post, template_dir, public_dir, io, test_allocator);
 }
 
-pub fn create_posts(posts: []const entries.Entry, template_dir: Dir, public_dir: Dir, io:Io, allocator:Allocator) !void {
+pub fn create_posts(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io:Io, allocator:Allocator) !void {
     for (posts) |post| {
-        try create_post_page(post, template_dir, public_dir, io, allocator);
+        try create_post_page(post, templates_dir, public_dir, io, allocator);
     }
 }
 
