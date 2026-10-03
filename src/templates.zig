@@ -36,7 +36,96 @@ fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: A
     return page_buffer;
 }
 
-fn create_homepage_html(posts: []entries.Entry) !void {
+fn create_homepage_post(post: entries.Entry, allocator: Allocator) ![]u8 {
+    var output: Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    const writer = &output.writer;
+
+    try writer.writeAll("<li>\n<a class=\"post-link\" href=\"");
+    // These values are plain text, not rendered Markdown.
+    const values = [_][]const u8{ post.slug, post.name, post.description };
+    for (values, 0..) |value, index| {
+        for (value) |character| {
+            switch (character) {
+                '&' => try writer.writeAll("&amp;"),
+                '<' => try writer.writeAll("&lt;"),
+                '>' => try writer.writeAll("&gt;"),
+                '"' => try writer.writeAll("&quot;"),
+                '\'' => try writer.writeAll("&#39;"),
+                else => try writer.writeByte(character),
+            }
+        }
+        switch (index) {
+            0 => {
+                try writer.writeAll(".html\">\n");
+                const date_html = try post.render_homepage_date(allocator);
+                defer allocator.free(date_html);
+                try writer.writeAll(date_html);
+                try writer.writeAll("<div class=\"post-summary\">\n<h3>");
+            },
+            1 => try writer.writeAll("</h3>\n<p>"),
+            2 => try writer.writeAll("</p>\n</div>\n<span class=\"post-arrow\" aria-hidden=\"true\">&rarr;</span>\n</a>\n</li>\n"),
+            else => unreachable,
+        }
+    }
+    return output.toOwnedSlice();
+}
+
+test "create_homepage_post renders a post card" {
+    const allocator = std.testing.allocator;
+    const post: entries.Entry = .{
+        .name = "Hello World",
+        .slug = "hello-world",
+        .description = "A small beginning: learning Zig by building this blog.",
+        .date = "2026-10-01",
+    };
+    const html = try create_homepage_post(post, allocator);
+    defer allocator.free(html);
+
+    const expected =
+        "<li>\n" ++
+        "<a class=\"post-link\" href=\"hello-world.html\">\n" ++
+        "<time class=\"post-date\" datetime=\"2026-10-01\">Oct 01, 2026</time>\n" ++
+        "<div class=\"post-summary\">\n" ++
+        "<h3>Hello World</h3>\n" ++
+        "<p>A small beginning: learning Zig by building this blog.</p>\n" ++
+        "</div>\n" ++
+        "<span class=\"post-arrow\" aria-hidden=\"true\">&rarr;</span>\n" ++
+        "</a>\n</li>\n";
+    try std.testing.expectEqualStrings(expected, html);
+}
+
+test "create_homepage_post prefers timestamp and escapes metadata" {
+    const allocator = std.testing.allocator;
+    const post: entries.Entry = .{
+        .name = "Zig <HTML> & \"quotes\"",
+        .slug = "post\"&'",
+        .description = "It's <safe> & escaped.",
+        .date = "2026-10-01",
+        .timestamp = 0,
+    };
+    const html = try create_homepage_post(post, allocator);
+    defer allocator.free(html);
+
+    try expect(mem.find(u8, html, "href=\"post&quot;&amp;&#39;.html\"") != null);
+    try expect(mem.find(u8, html, "<h3>Zig &lt;HTML&gt; &amp; &quot;quotes&quot;</h3>") != null);
+    try expect(mem.find(u8, html, "<p>It&#39;s &lt;safe&gt; &amp; escaped.</p>") != null);
+    try expect(mem.find(u8, html, "datetime=\"1970-01-01\">Jan 01, 1970</time>") != null);
+    try expect(mem.find(u8, html, "2026-10-01") == null);
+}
+
+test "create_homepage_post omits missing dates and rejects invalid dates" {
+    const allocator = std.testing.allocator;
+    const html = try create_homepage_post(.{ .name = "Undated post", .slug = "undated" }, allocator);
+    defer allocator.free(html);
+
+    try expect(mem.find(u8, html, "<time") == null);
+    try expect(mem.find(u8, html, "<h3>Undated post</h3>\n<p></p>") != null);
+    try std.testing.expectError(error.InvalidMetadataDate, create_homepage_post(.{
+        .name = "Invalid date",
+        .slug = "invalid",
+        .date = "2026-02-30",
+    }, allocator));
 }
 
 test "read_html" {
@@ -50,6 +139,7 @@ test "read_html" {
 
 pub fn create_homepage(posts: []entries.Entry, template_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     _ = public_dir;
+    _ = posts;
     const home_page = try read_html("index.html", template_dir, io, allocator);
     defer allocator.free(home_page);
 
@@ -68,6 +158,6 @@ test "create_homepage" {
     const test_allocator = std.testing.allocator;
     const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
     const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
-    var posts : []entries.Entry = undefined
+    const posts: []entries.Entry = undefined;
     try create_homepage(posts, template_dir, public_dir, io, test_allocator);
 }

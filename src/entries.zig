@@ -83,6 +83,35 @@ pub const Entry = struct {
         self.timestamp = timestamp;
     }
 
+    /// Returns allocator-owned homepage `<time>` HTML, preferring the timestamp's
+    /// UTC date. Returns an empty string when neither date nor timestamp is set.
+    pub fn render_homepage_date(self: Entry, allocator: Allocator) ![]u8 {
+        if (self.date.len == 0 and self.timestamp == null) return allocator.dupe(u8, "");
+
+        var year: u16 = undefined;
+        var month: u8 = undefined;
+        var day: u8 = undefined;
+        if (self.timestamp) |timestamp| {
+            if (timestamp > 253402300799) return error.InvalidMetadataTimestamp;
+            const seconds: epoch.EpochSeconds = .{ .secs = timestamp };
+            const year_day = seconds.getEpochDay().calculateYearDay();
+            const month_day = year_day.calculateMonthDay();
+            year = year_day.year;
+            month = month_day.month.numeric();
+            day = @as(u8, month_day.day_index) + 1;
+        } else {
+            var validated: Entry = .{};
+            try validated.add_date(self.date, allocator);
+            defer allocator.free(validated.date);
+            year = try std.fmt.parseInt(u16, self.date[0..4], 10);
+            month = try std.fmt.parseInt(u8, self.date[5..7], 10);
+            day = try std.fmt.parseInt(u8, self.date[8..10], 10);
+        }
+        return std.fmt.allocPrint(allocator, "<time class=\"post-date\" datetime=\"{d:0>4}-{d:0>2}-{d:0>2}\">{s} {d:0>2}, {d:0>4}</time>\n", .{
+            year, month, day, months[month - 1][0..3], day, year,
+        });
+    }
+
     /// Appends one post-date paragraph, preferring the timestamp's UTC date and time.
     /// Falls back to the stored date when no timestamp is present.
     fn render_date(self: *Entry, allocator: Allocator) !void {
@@ -119,6 +148,29 @@ pub const Entry = struct {
         allocator.free(self.date);
     }
 };
+
+test "render_homepage_date" {
+    const allocator = std.testing.allocator;
+    const dated: Entry = .{ .date = "2026-10-01" };
+    const date_html = try dated.render_homepage_date(allocator);
+    defer allocator.free(date_html);
+    try std.testing.expectEqualStrings("<time class=\"post-date\" datetime=\"2026-10-01\">Oct 01, 2026</time>\n", date_html);
+
+    const timestamped: Entry = .{ .date = "2026-10-01", .timestamp = 0 };
+    const timestamp_html = try timestamped.render_homepage_date(allocator);
+    defer allocator.free(timestamp_html);
+    try std.testing.expectEqualStrings("<time class=\"post-date\" datetime=\"1970-01-01\">Jan 01, 1970</time>\n", timestamp_html);
+
+    const undated: Entry = .{};
+    const empty = try undated.render_homepage_date(allocator);
+    defer allocator.free(empty);
+    try std.testing.expectEqualStrings("", empty);
+
+    const invalid: Entry = .{ .date = "2026-02-30" };
+    try std.testing.expectError(error.InvalidMetadataDate, invalid.render_homepage_date(allocator));
+    const invalid_timestamp: Entry = .{ .timestamp = 253402300800 };
+    try std.testing.expectError(error.InvalidMetadataTimestamp, invalid_timestamp.render_homepage_date(allocator));
+}
 
 test "create entry" {
     const test_allocator = std.testing.allocator;
