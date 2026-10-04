@@ -19,17 +19,22 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
     if (section.len == 0) return;
     var count: usize = 0;
     var header_count: usize = 0;
-    var has_headers = false;
+    var is_header = false;
+    var is_list = false;
     while (count < section.len and section[count] == '#') : (count += 1) {
         if (count >= 5) break;
     }
     if (count >= section.len) return error.InvalidLine;
     if (count > 0 and section[count] == ' ') {
-        has_headers = true;
+        is_header = true;
         count += 1;
         const header = try std.fmt.allocPrint(allocator, "<h{d}>", .{count - 1});
         defer allocator.free(header);
         try entry.add_content(header, allocator);
+    } else if (section[count] == '-' and count + 1 < section.len) {
+        is_list = true;
+        try entry.add_content("<li>", allocator);
+        count += 1;
     } else {
         const header = try std.fmt.allocPrint(allocator, "<p>", .{});
         defer allocator.free(header);
@@ -77,10 +82,12 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
     try entry.add_content(content.written(), allocator);
 
     try entry.add_content(section[count..section.len], allocator);
-    if (has_headers) {
+    if (is_header) {
         const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
         defer allocator.free(close_tag);
         try entry.add_content(close_tag, allocator);
+    } else if (is_list) {
+        try entry.add_content("</li>", allocator);
     } else {
         const close_tag = try std.fmt.allocPrint(allocator, "</p>", .{});
         defer allocator.free(close_tag);
