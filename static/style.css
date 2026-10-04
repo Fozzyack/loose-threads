@@ -126,11 +126,20 @@ main {
 }
 
 .site-name {
+    display: inline-flex;
+    align-items: center;
     color: var(--text);
     font-size: 1rem;
     font-weight: 600;
     letter-spacing: -0.025em;
     text-decoration: none;
+}
+
+.site-logo {
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    margin-right: 0.5rem;
 }
 
 /* Small shell details; keep Syne for the main typography. */
