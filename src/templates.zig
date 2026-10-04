@@ -1,3 +1,5 @@
+//! Renders homepage post lists and individual post pages from HTML templates.
+//! Plain-text metadata is HTML-escaped; rendered post content is inserted verbatim.
 const std = @import("std");
 const entries = @import("entries.zig");
 const Io = std.Io;
@@ -19,6 +21,9 @@ const POST_CONTENT: []const u8 = "{{ content }}";
 const POST_NAME: []const u8 = "{{ name }}";
 const POST_DESCRIPTION: []const u8 = "{{ description }}";
 
+/// Renders a linked list item with escaped slug, name, and description.
+/// Includes the post's display date when present, preferring its UTC timestamp.
+/// The caller owns the returned HTML and must free it with `allocator`.
 fn create_homepage_post(post: entries.Entry, allocator: Allocator) ![]u8 {
     var output: Io.Writer.Allocating = .init(allocator);
     defer output.deinit();
@@ -111,6 +116,8 @@ test "create_homepage_post omits missing dates and rejects invalid dates" {
     }, allocator));
 }
 
+/// Reads an entire template file relative to `templates_dir` without rendering it.
+/// The caller owns the returned bytes and must free them with `allocator`.
 fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: Allocator) ![]u8 {
     var file = try templates_dir.openFile(io, template_name, .{});
     defer file.close(io);
@@ -143,10 +150,12 @@ test "read_html" {
     try std.testing.expectEqualStrings(expected, page_html);
 }
 
+/// Borrows a post and caches its optional calendar-based key for homepage sorting.
 const HomepagePost = struct {
     post: entries.Entry,
     date_key: ?u64,
 
+    /// Orders dated posts newest first, undated posts last, and ties by slug.
     fn newest_first(_: void, a: HomepagePost, b: HomepagePost) bool {
         if (a.date_key) |a_date| {
             const b_date = b.date_key orelse return true;
@@ -158,8 +167,10 @@ const HomepagePost = struct {
     }
 };
 
-// Use calendar dates plus seconds within the day so date-only posts can be
-// compared with timestamps, including dates before the Unix epoch.
+/// Returns a sortable calendar key, preferring a UTC timestamp over a date.
+/// Combines YYYYMMDD with seconds within the day so pre-epoch dates also sort.
+/// Date-only posts use midnight; undated posts return null. Invalid dates or
+/// timestamps return `InvalidMetadataDate` or `InvalidMetadataTimestamp`.
 fn homepage_date_key(post: entries.Entry, allocator: Allocator) !?u64 {
     if (post.timestamp) |timestamp| {
         if (timestamp > 253402300799) return error.InvalidMetadataTimestamp;
@@ -180,6 +191,9 @@ fn homepage_date_key(post: entries.Entry, allocator: Allocator) !?u64 {
     return (year * 10000 + month * 100 + day) * 86400;
 }
 
+/// Renders post cards newest first, with undated posts last and ties sorted by slug.
+/// Leaves the input posts unchanged and returns empty HTML for an empty slice.
+/// The caller owns the returned HTML and must free it with `allocator`.
 fn render_homepage_posts(posts: []const entries.Entry, allocator: Allocator) ![]u8 {
     const sorted = try allocator.alloc(HomepagePost, posts.len);
     defer allocator.free(sorted);
@@ -237,6 +251,10 @@ test "homepage sorting handles empty lists, ties, and invalid metadata" {
     }, allocator));
 }
 
+/// Reads `index.html` from `templates_dir`, replaces the first `{{ post_list }}`
+/// marker with sorted post cards, and writes `index.html` into `public_dir`.
+/// Replaces any existing output file; a missing marker returns
+/// `CannotFindInjectionPoint`. Both directories remain owned by the caller.
 pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     const home_page = try read_html("index.html", templates_dir, io, allocator);
     defer allocator.free(home_page);
@@ -294,6 +312,10 @@ test "create_homepage" {
     try expect(first < second);
 }
 
+/// Replaces all content, name, and description markers in the supplied template.
+/// Escapes metadata but preserves rendered content; inserted values are not
+/// scanned for more markers. Requires `{{ content }}` or returns
+/// `CannotFindInjectionPoint`. The caller must free the HTML with `allocator`.
 fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Allocator) ![]u8 {
     if (mem.find(u8, post_html, POST_CONTENT) == null) return error.CannotFindInjectionPoint;
     var output: Io.Writer.Allocating = .init(allocator);
@@ -368,6 +390,9 @@ test "render_post_page handles repeated reordered fields without recursive repla
     try std.testing.expectError(error.CannotFindInjectionPoint, render_post_page("{{ name }}", .{ .name = "Post" }, allocator));
 }
 
+/// Renders `page.html` from `templates_dir` into `{slug}.html` in `public_dir`.
+/// Creates the output exclusively: an existing file returns `PathAlreadyExists`.
+/// Both directories remain owned by the caller; temporary allocations are freed.
 fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     const post_html = try read_html("page.html", templates_dir, io, allocator);
     defer allocator.free(post_html);
@@ -405,6 +430,9 @@ test "create_post_page" {
     try std.testing.expectEqualStrings("<h1>test_name</h1><p>Some description here</p><main></main>", html);
 }
 
+/// Creates one page per post in input order using `page.html` from `templates_dir`.
+/// Stops at the first error without removing pages already written to `public_dir`.
+/// Existing output files are not overwritten. Posts and directories are borrowed.
 pub fn create_posts(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     for (posts) |post| {
         try create_post_page(post, templates_dir, public_dir, io, allocator);
