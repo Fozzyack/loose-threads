@@ -76,6 +76,30 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
                 }
             }
         }
+        if (section[count] == '_') {
+            bold_italic: {
+                var is_bold: bool = false;
+                if (count + 1 < section.len) {
+                    const idx = count + 1 + (mem.findScalarLast(u8, section[count + 1 ..], '_') orelse break :bold_italic);
+                    if (idx == count + 1) break :bold_italic;
+                    if (section[count + 1] == '_' and section[idx - 1] == '_') is_bold = true;
+                    try content_writer.writeAll(section[old_count..count]);
+                    if (is_bold) {
+                        const tag = try std.fmt.allocPrint(allocator, "\n<span class=\"bold\" >{s}</span>\n", .{section[count + 2 .. idx - 1]});
+                        defer allocator.free(tag);
+                        try content_writer.writeAll(tag);
+                    } else {
+                        const tag = try std.fmt.allocPrint(allocator, "\n<span class=\"italic\" >{s}</span>\n", .{section[count + 1 .. idx]});
+                        defer allocator.free(tag);
+                        try content_writer.writeAll(tag);
+                    }
+                    count = idx + 1;
+                    old_count = count;
+                    continue;
+                }
+            }
+        }
+
         count += 1;
     }
     try content_writer.writeAll(section[old_count..count]);

@@ -249,6 +249,7 @@ main {
         stroke-dasharray: 1;
         stroke-dashoffset: 1;
     }
+
     to {
         stroke-dasharray: 1;
         stroke-dashoffset: 0;
@@ -315,12 +316,12 @@ main {
     color: var(--accent);
 }
 
-.post-list > li {
+.post-list>li {
     position: relative;
     padding-left: 2rem;
 }
 
-.post-list > li::before {
+.post-list>li::before {
     content: "";
     position: absolute;
     top: 1.45rem;
@@ -330,7 +331,7 @@ main {
     background: var(--border);
 }
 
-.post-list > li:nth-child(even):not(:last-of-type)::before {
+.post-list>li:nth-child(even):not(:last-of-type)::before {
     top: 1.45rem;
     bottom: -1.45rem;
     left: -0.375rem;
@@ -340,11 +341,11 @@ main {
     mask-repeat: no-repeat;
 }
 
-.post-list > li:first-child::before {
+.post-list>li:first-child::before {
     top: 1.45rem;
 }
 
-.post-list > li:last-of-type::before {
+.post-list>li:last-of-type::before {
     bottom: calc(100% - 1.45rem);
 }
 
@@ -373,7 +374,7 @@ main {
     background: var(--background);
 }
 
-.post-list > li:first-child .post-link::before,
+.post-list>li:first-child .post-link::before,
 .post-link:hover::before,
 .post-link:focus-visible::before {
     background: var(--accent);
@@ -449,7 +450,7 @@ main {
     font-size: 0.8125rem;
 }
 
-.site-footer > a {
+.site-footer>a {
     text-decoration: none;
 }
 
@@ -491,7 +492,7 @@ main {
 }
 
 .back-link span,
-.site-footer > a span {
+.site-footer>a span {
     color: var(--accent);
 }
 
@@ -500,7 +501,7 @@ main {
     line-height: 1.85;
 }
 
-.article-page article > * + * {
+.article-page article>*+* {
     margin-top: 1.5rem;
 }
 
@@ -539,7 +540,7 @@ main {
     padding-left: 1.5rem;
 }
 
-.article-page li + li {
+.article-page li+li {
     margin-top: 0.5rem;
 }
 
@@ -554,7 +555,7 @@ main {
     color: var(--muted);
 }
 
-.article-page blockquote > * + * {
+.article-page blockquote>*+* {
     margin-top: 1rem;
 }
 
@@ -621,6 +622,14 @@ pre code {
     font-weight: 600;
 }
 
+.italic {
+    font-style: italic;
+}
+
+.bold {
+    font-weight: bold;
+}
+
 hr {
     margin-block: 2.5rem;
     border: 0;
@@ -661,6 +670,7 @@ hr {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .timeline-light,
     .timeline-toggle {
         display: none;
