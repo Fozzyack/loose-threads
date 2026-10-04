@@ -132,10 +132,15 @@ fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: A
 test "read_html" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
-    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
+    var templates = std.testing.tmpDir(.{});
+    defer templates.cleanup();
+    const template_dir = templates.dir;
+    const expected = "<html><body>{{ post_list }}</body></html>";
+    try template_dir.writeFile(io, .{ .sub_path = "index.html", .data = expected });
 
     const page_html = try read_html("index.html", template_dir, io, test_allocator);
     defer test_allocator.free(page_html);
+    try std.testing.expectEqualStrings(expected, page_html);
 }
 
 const HomepagePost = struct {
@@ -258,8 +263,13 @@ pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_
 test "create_homepage" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
-    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
-    const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
+    var templates = std.testing.tmpDir(.{});
+    defer templates.cleanup();
+    var output = std.testing.tmpDir(.{});
+    defer output.cleanup();
+    const template_dir = templates.dir;
+    const public_dir = output.dir;
+    try template_dir.writeFile(io, .{ .sub_path = "index.html", .data = "<ul>{{ post_list }}</ul>" });
     var post = entries.Entry{};
     defer post.deinit(test_allocator);
     try post.add_name("test_name", test_allocator);
@@ -274,6 +284,14 @@ test "create_homepage" {
     try post2.add_slug("test-2", test_allocator);
     const posts = [_]entries.Entry{ post, post2 };
     try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
+    const html = try public_dir.readFileAlloc(io, "index.html", test_allocator, .unlimited);
+    defer test_allocator.free(html);
+    try expect(mem.startsWith(u8, html, "<ul>"));
+    try expect(mem.endsWith(u8, html, "</ul>"));
+    try expect(mem.find(u8, html, POST_LIST_INSERT) == null);
+    const first = mem.find(u8, html, "href=\"test-2.html\"") orelse return error.TestExpectedEqual;
+    const second = mem.find(u8, html, "href=\"test-name.html\"") orelse return error.TestExpectedEqual;
+    try expect(first < second);
 }
 
 fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Allocator) ![]u8 {
@@ -321,11 +339,9 @@ fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Alloc
 
 test "render_post_page replaces metadata and preserves rendered content" {
     const allocator = std.testing.allocator;
-    const io = std.testing.io;
-    const template_dir = try Dir.cwd().openDir(io, "templates", .{});
-    defer template_dir.close(io);
-    const page = try read_html("page.html", template_dir, io, allocator);
-    defer allocator.free(page);
+    const page = "<title>{{ name }} | Loose Threads</title>" ++
+        "<meta name=\"description\" content=\"{{ description }}\">" ++
+        "<main>{{ content }}</main>";
     const html = try render_post_page(page, .{
         .name = "Zig <HTML> & \"quotes\"",
         .description = "It's <safe> & \"escaped\".",
@@ -370,8 +386,13 @@ fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io
 test "create_post_page" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
-    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
-    const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
+    var templates = std.testing.tmpDir(.{});
+    defer templates.cleanup();
+    var output = std.testing.tmpDir(.{});
+    defer output.cleanup();
+    const template_dir = templates.dir;
+    const public_dir = output.dir;
+    try template_dir.writeFile(io, .{ .sub_path = "page.html", .data = "<h1>{{ name }}</h1><p>{{ description }}</p><main>{{ content }}</main>" });
     var post = entries.Entry{};
     defer post.deinit(test_allocator);
     try post.add_name("test_name", test_allocator);
@@ -379,6 +400,9 @@ test "create_post_page" {
     try post.add_timestamp("1791014010");
     try post.add_slug("test-name", test_allocator);
     try create_post_page(post, template_dir, public_dir, io, test_allocator);
+    const html = try public_dir.readFileAlloc(io, "test-name.html", test_allocator, .unlimited);
+    defer test_allocator.free(html);
+    try std.testing.expectEqualStrings("<h1>test_name</h1><p>Some description here</p><main></main>", html);
 }
 
 pub fn create_posts(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
@@ -390,8 +414,13 @@ pub fn create_posts(posts: []const entries.Entry, templates_dir: Dir, public_dir
 test "create_posts" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
-    const template_dir = try Dir.cwd().openDir(io, "templates", .{ .iterate = true });
-    const public_dir = try Dir.cwd().openDir(io, "public", .{ .iterate = true });
+    var templates = std.testing.tmpDir(.{});
+    defer templates.cleanup();
+    var output = std.testing.tmpDir(.{});
+    defer output.cleanup();
+    const template_dir = templates.dir;
+    const public_dir = output.dir;
+    try template_dir.writeFile(io, .{ .sub_path = "page.html", .data = "<h1>{{ name }}</h1><p>{{ description }}</p><main>{{ content }}</main>" });
     var post = entries.Entry{};
     defer post.deinit(test_allocator);
     try post.add_name("test_name", test_allocator);
@@ -408,4 +437,10 @@ test "create_posts" {
     try post2.add_slug("test-2", test_allocator);
     const posts = [_]entries.Entry{ post, post2 };
     try create_posts(&posts, template_dir, public_dir, io, test_allocator);
+    const first = try public_dir.readFileAlloc(io, "test-name.html", test_allocator, .unlimited);
+    defer test_allocator.free(first);
+    const second = try public_dir.readFileAlloc(io, "test-2.html", test_allocator, .unlimited);
+    defer test_allocator.free(second);
+    try std.testing.expectEqualStrings("<h1>test_name</h1><p>Some description here</p><main>Some content here</main>", first);
+    try std.testing.expectEqualStrings("<h1>test_post_2</h1><p>another post</p><main>Some content here</main>", second);
 }
