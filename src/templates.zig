@@ -138,6 +138,100 @@ test "read_html" {
     defer test_allocator.free(page_html);
 }
 
+const HomepagePost = struct {
+    post: entries.Entry,
+    date_key: ?u64,
+
+    fn newest_first(_: void, a: HomepagePost, b: HomepagePost) bool {
+        if (a.date_key) |a_date| {
+            const b_date = b.date_key orelse return true;
+            if (a_date != b_date) return a_date > b_date;
+        } else if (b.date_key != null) {
+            return false;
+        }
+        return mem.order(u8, a.post.slug, b.post.slug) == .lt;
+    }
+};
+
+// Use calendar dates plus seconds within the day so date-only posts can be
+// compared with timestamps, including dates before the Unix epoch.
+fn homepage_date_key(post: entries.Entry, allocator: Allocator) !?u64 {
+    if (post.timestamp) |timestamp| {
+        if (timestamp > 253402300799) return error.InvalidMetadataTimestamp;
+        const seconds: epoch.EpochSeconds = .{ .secs = timestamp };
+        const year_day = seconds.getEpochDay().calculateYearDay();
+        const month_day = year_day.calculateMonthDay();
+        const calendar: u64 = @as(u64, year_day.year) * 10000 +
+            @as(u64, month_day.month.numeric()) * 100 + @as(u64, month_day.day_index) + 1;
+        return calendar * 86400 + timestamp % 86400;
+    }
+    if (post.date.len == 0) return null;
+    var validated: entries.Entry = .{};
+    try validated.add_date(post.date, allocator);
+    defer allocator.free(validated.date);
+    const year = try std.fmt.parseInt(u64, post.date[0..4], 10);
+    const month = try std.fmt.parseInt(u64, post.date[5..7], 10);
+    const day = try std.fmt.parseInt(u64, post.date[8..10], 10);
+    return (year * 10000 + month * 100 + day) * 86400;
+}
+
+fn render_homepage_posts(posts: []const entries.Entry, allocator: Allocator) ![]u8 {
+    const sorted = try allocator.alloc(HomepagePost, posts.len);
+    defer allocator.free(sorted);
+    for (posts, sorted) |post, *item| {
+        item.* = .{ .post = post, .date_key = try homepage_date_key(post, allocator) };
+    }
+    mem.sort(HomepagePost, sorted, {}, HomepagePost.newest_first);
+
+    var output: Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+    for (sorted) |item| {
+        const html = try create_homepage_post(item.post, allocator);
+        defer allocator.free(html);
+        try output.writer.writeAll(html);
+    }
+    return output.toOwnedSlice();
+}
+
+test "homepage posts are newest first with undated posts last" {
+    const allocator = std.testing.allocator;
+    const posts = [_]entries.Entry{
+        .{ .name = "Undated", .slug = "undated" },
+        .{ .name = "Old", .slug = "old", .date = "1969-12-31" },
+        .{ .name = "Midnight", .slug = "midnight", .date = "1970-01-02" },
+        .{ .name = "Newest", .slug = "newest", .date = "1900-01-01", .timestamp = 86401 },
+        .{ .name = "Epoch", .slug = "epoch", .timestamp = 0 },
+    };
+    const html = try render_homepage_posts(&posts, allocator);
+    defer allocator.free(html);
+    const slugs = [_][]const u8{ "newest.html", "midnight.html", "epoch.html", "old.html", "undated.html" };
+    var offset: usize = 0;
+    for (slugs) |slug| {
+        const location = mem.find(u8, html[offset..], slug) orelse return error.TestExpectedEqual;
+        offset += location + slug.len;
+    }
+    try std.testing.expectEqualStrings("undated", posts[0].slug);
+}
+
+test "homepage sorting handles empty lists, ties, and invalid metadata" {
+    const allocator = std.testing.allocator;
+    const empty = try render_homepage_posts(&.{}, allocator);
+    defer allocator.free(empty);
+    try std.testing.expectEqualStrings("", empty);
+    const html = try render_homepage_posts(&.{
+        .{ .name = "B", .slug = "b", .date = "2026-10-01" },
+        .{ .name = "A", .slug = "a", .date = "2026-10-01" },
+    }, allocator);
+    defer allocator.free(html);
+    try expect(mem.find(u8, html, "a.html").? < mem.find(u8, html, "b.html").?);
+    try std.testing.expectError(error.InvalidMetadataDate, render_homepage_posts(&.{
+        .{ .name = "Invalid", .date = "2026-02-30" },
+    }, allocator));
+    try std.testing.expectError(error.InvalidMetadataTimestamp, render_homepage_posts(&.{
+        .{ .name = "Invalid", .timestamp = 253402300800 },
+    }, allocator));
+}
+
 pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     const home_page = try read_html("index.html", templates_dir, io, allocator);
     defer allocator.free(home_page);
@@ -149,11 +243,9 @@ pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_
     const injection_location = mem.find(u8, home_page, POST_LIST_INSERT) orelse return error.CannotFindInjectionPoint;
     try writer.writeAll(home_page[0..injection_location]);
 
-    for (posts) |post| {
-        const list_entry = try create_homepage_post(post, allocator);
-        defer allocator.free(list_entry);
-        try writer.writeAll(list_entry);
-    }
+    const post_list = try render_homepage_posts(posts, allocator);
+    defer allocator.free(post_list);
+    try writer.writeAll(post_list);
     try writer.writeAll(home_page[injection_location + POST_LIST_INSERT.len ..]);
 
     var file = try public_dir.createFile(io, "index.html", .{ .read = true });
