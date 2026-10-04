@@ -1,7 +1,7 @@
 ---
 name: Hello World
 description: Learning zig by building a small static-site generator.
-slug: hello-world
+slug: early-date
 date: 2026-09-01
 ---
 

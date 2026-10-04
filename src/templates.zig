@@ -184,8 +184,6 @@ test "create_homepage" {
     try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
 }
 
-/// Replaces page fields in one pass so inserted values are never interpreted as
-/// template syntax. Metadata is escaped; rendered Markdown remains HTML.
 fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Allocator) ![]u8 {
     if (mem.find(u8, post_html, POST_CONTENT) == null) return error.CannotFindInjectionPoint;
     var output: Io.Writer.Allocating = .init(allocator);
@@ -270,7 +268,7 @@ fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io
 
     const filename = try std.fmt.allocPrint(allocator, "{s}.html", .{post.slug});
     defer allocator.free(filename);
-    var file = try public_dir.createFile(io, filename, .{ .read = true });
+    var file = try public_dir.createFile(io, filename, .{ .exclusive = true, .read = true });
     defer file.close(io);
 
     try file.writePositionalAll(io, output, 0);

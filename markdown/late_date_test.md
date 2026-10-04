@@ -1,7 +1,7 @@
 ---
 name: Late Date Test 
 description: Learning zig by building a small static-site generator.
-slug: hello-world
+slug: late-date 
 date: 2026-08-01
 ---
 
