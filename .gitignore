@@ -3,3 +3,4 @@ test_img.jpg
 zig-out/
 public/
 *.out
+markdown/**/*.md
