@@ -18,7 +18,8 @@ pub fn copy_assets(css_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) 
             !mem.endsWith(u8, entry.basename, ".jpeg") and
             !mem.endsWith(u8, entry.basename, ".svg") and
             !mem.endsWith(u8, entry.basename, ".js") and
-            !mem.endsWith(u8, entry.basename, ".gif")) continue;
+            !mem.endsWith(u8, entry.basename, ".gif") and
+            !mem.endsWith(u8, entry.basename, ".js")) continue;
         try Dir.copyFile(css_dir, entry.path, public_dir, entry.basename, io, .{});
     }
 }
