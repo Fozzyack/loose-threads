@@ -16,6 +16,8 @@ const eql = std.mem.eql;
 
 const POST_LIST_INSERT: []const u8 = "{{ post_list }}";
 const POST_CONTENT: []const u8 = "{{ content }}";
+const POST_NAME: []const u8 = "{{ name }}";
+const POST_DESCRIPTION: []const u8 = "{{ description }}";
 
 fn create_homepage_post(post: entries.Entry, allocator: Allocator) ![]u8 {
     var output: Io.Writer.Allocating = .init(allocator);
@@ -127,7 +129,6 @@ fn read_html(template_name: []const u8, templates_dir: Dir, io: Io, allocator: A
     return page_buffer;
 }
 
-
 test "read_html" {
     const io = std.testing.io;
     const test_allocator = std.testing.allocator;
@@ -141,7 +142,7 @@ pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_
     const home_page = try read_html("index.html", templates_dir, io, allocator);
     defer allocator.free(home_page);
 
-    var output : Io.Writer.Allocating = .init(allocator);
+    var output: Io.Writer.Allocating = .init(allocator);
     defer output.deinit();
     var writer = &output.writer;
 
@@ -153,7 +154,7 @@ pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_
         defer allocator.free(list_entry);
         try writer.writeAll(list_entry);
     }
-    try writer.writeAll(home_page[injection_location + POST_LIST_INSERT.len..]);
+    try writer.writeAll(home_page[injection_location + POST_LIST_INSERT.len ..]);
 
     var file = try public_dir.createFile(io, "index.html", .{ .read = true });
     defer file.close(io);
@@ -183,29 +184,97 @@ test "create_homepage" {
     try create_homepage(&posts, template_dir, public_dir, io, test_allocator);
 }
 
-fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
-    const post_html = try read_html("page.html", templates_dir,io, allocator);
-    defer allocator.free(post_html);
-
-
+/// Replaces page fields in one pass so inserted values are never interpreted as
+/// template syntax. Metadata is escaped; rendered Markdown remains HTML.
+fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Allocator) ![]u8 {
+    if (mem.find(u8, post_html, POST_CONTENT) == null) return error.CannotFindInjectionPoint;
     var output: Io.Writer.Allocating = .init(allocator);
     defer output.deinit();
-    var writer = &output.writer;
+    const writer = &output.writer;
+    const fields = [_]struct { marker: []const u8, value: []const u8, escape: bool }{
+        .{ .marker = POST_CONTENT, .value = post.content, .escape = false },
+        .{ .marker = POST_NAME, .value = post.name, .escape = true },
+        .{ .marker = POST_DESCRIPTION, .value = post.description, .escape = true },
+    };
+    var offset: usize = 0;
+    while (offset < post_html.len) {
+        var next: usize = post_html.len;
+        var field_index: ?usize = null;
+        for (fields, 0..) |field, index| {
+            if (mem.find(u8, post_html[offset..], field.marker)) |location| {
+                if (offset + location < next) {
+                    next = offset + location;
+                    field_index = index;
+                }
+            }
+        }
+        try writer.writeAll(post_html[offset..next]);
+        const field = fields[field_index orelse break];
+        if (field.escape) {
+            for (field.value) |character| {
+                switch (character) {
+                    '&' => try writer.writeAll("&amp;"),
+                    '<' => try writer.writeAll("&lt;"),
+                    '>' => try writer.writeAll("&gt;"),
+                    '"' => try writer.writeAll("&quot;"),
+                    '\'' => try writer.writeAll("&#39;"),
+                    else => try writer.writeByte(character),
+                }
+            }
+        } else {
+            try writer.writeAll(field.value);
+        }
+        offset = next + field.marker.len;
+    }
+    return output.toOwnedSlice();
+}
 
-    const injection_location: usize = mem.find(u8, post_html, POST_CONTENT) orelse return error.CannotFindInjectionPoint;
+test "render_post_page replaces metadata and preserves rendered content" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    const template_dir = try Dir.cwd().openDir(io, "templates", .{});
+    defer template_dir.close(io);
+    const page = try read_html("page.html", template_dir, io, allocator);
+    defer allocator.free(page);
+    const html = try render_post_page(page, .{
+        .name = "Zig <HTML> & \"quotes\"",
+        .description = "It's <safe> & \"escaped\".",
+        .content = "<h1>Body</h1>\n",
+    }, allocator);
+    defer allocator.free(html);
 
-    try writer.writeAll(post_html[0..injection_location]);
-    try writer.writeAll(post.content);
-    try writer.writeAll(post_html[injection_location + POST_CONTENT.len..]);
+    try expect(mem.find(u8, html, "<title>Zig &lt;HTML&gt; &amp; &quot;quotes&quot; | Loose Threads</title>") != null);
+    try expect(mem.find(u8, html, "content=\"It&#39;s &lt;safe&gt; &amp; &quot;escaped&quot;.\"") != null);
+    try expect(mem.find(u8, html, "<h1>Body</h1>\n") != null);
+    for ([_][]const u8{ POST_NAME, POST_DESCRIPTION, POST_CONTENT }) |marker| {
+        try expect(mem.find(u8, html, marker) == null);
+    }
+}
+
+test "render_post_page handles repeated reordered fields without recursive replacement" {
+    const allocator = std.testing.allocator;
+    const html = try render_post_page("{{ content }}|{{ description }}|{{ name }}|{{ name }}", .{
+        .name = "{{ description }}",
+        .content = "<p>{{ name }}</p>",
+    }, allocator);
+    defer allocator.free(html);
+    try std.testing.expectEqualStrings("<p>{{ name }}</p>||{{ description }}|{{ description }}", html);
+    try std.testing.expectError(error.CannotFindInjectionPoint, render_post_page("{{ name }}", .{ .name = "Post" }, allocator));
+}
+
+fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
+    const post_html = try read_html("page.html", templates_dir, io, allocator);
+    defer allocator.free(post_html);
+    const output = try render_post_page(post_html, post, allocator);
+    defer allocator.free(output);
 
     const filename = try std.fmt.allocPrint(allocator, "{s}.html", .{post.slug});
     defer allocator.free(filename);
     var file = try public_dir.createFile(io, filename, .{ .read = true });
     defer file.close(io);
 
-    try file.writePositionalAll(io, output.written(), 0);
+    try file.writePositionalAll(io, output, 0);
     std.debug.print("Created Post {s} ... \n", .{filename});
-
 }
 
 test "create_post_page" {
@@ -222,7 +291,7 @@ test "create_post_page" {
     try create_post_page(post, template_dir, public_dir, io, test_allocator);
 }
 
-pub fn create_posts(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io:Io, allocator:Allocator) !void {
+pub fn create_posts(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     for (posts) |post| {
         try create_post_page(post, templates_dir, public_dir, io, allocator);
     }
