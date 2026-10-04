@@ -1,6 +1,6 @@
 # Loose Threads
 
-A personal programming blog by Frasier Sundra, built with a single-threaded, dependency-free static-site generator in **Zig 0.16.0**.
+A personal programming blog, built with a single-threaded, dependency-free static-site generator in **Zig 0.16.0**.
 
 Posts live in `markdown/`, HTML templates in `templates/`, and CSS, JavaScript, and images in `static/`. The generator writes everything to `public/` for static hosting such as Cloudflare Pages. The homepage includes a compact thread timeline with a looping light, pause control, and reduced-motion support.
 
