@@ -76,28 +76,26 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
                 }
             }
         }
-        if (section[count] == '_') {
+        if (section[count] == '_' or section[count] == '*') {
+            const is_bold = count + 1 < section.len and section[count + 1] == section[count];
+            const delimiter_len: usize = if (is_bold) 2 else 1;
+            const delimiter = section[count .. count + delimiter_len];
+            const text_start = count + delimiter_len;
             bold_italic: {
-                var is_bold: bool = false;
-                if (count + 1 < section.len) {
-                    const idx = count + 1 + (mem.findScalarLast(u8, section[count + 1 ..], '_') orelse break :bold_italic);
-                    if (idx == count + 1) break :bold_italic;
-                    if (section[count + 1] == '_' and section[idx - 1] == '_') is_bold = true;
-                    try content_writer.writeAll(section[old_count..count]);
-                    if (is_bold) {
-                        const tag = try std.fmt.allocPrint(allocator, "\n<span class=\"bold\" >{s}</span>\n", .{section[count + 2 .. idx - 1]});
-                        defer allocator.free(tag);
-                        try content_writer.writeAll(tag);
-                    } else {
-                        const tag = try std.fmt.allocPrint(allocator, "\n<span class=\"italic\" >{s}</span>\n", .{section[count + 1 .. idx]});
-                        defer allocator.free(tag);
-                        try content_writer.writeAll(tag);
-                    }
-                    count = idx + 1;
-                    old_count = count;
-                    continue;
-                }
+                const text_end = text_start + (mem.find(u8, section[text_start..], delimiter) orelse break :bold_italic);
+                if (text_end == text_start) break :bold_italic;
+
+                try content_writer.writeAll(section[old_count..count]);
+                const class = if (is_bold) "bold" else "italic";
+                const tag = try std.fmt.allocPrint(allocator, "<span class=\"{s}\">{s}</span>", .{ class, section[text_start..text_end] });
+                defer allocator.free(tag);
+                try content_writer.writeAll(tag);
+                count = text_end + delimiter_len;
+                old_count = count;
+                continue;
             }
+            count += delimiter_len;
+            continue;
         }
 
         count += 1;
@@ -147,6 +145,44 @@ test "parse_section paragraph" {
     const section: []const u8 = "some # test entry!";
     try parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
+}
+
+test "parse_section renders inline bold and italic with both delimiters" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { section: []const u8, html: []const u8 }{
+        .{ .section = "*a*", .html = "<p><span class=\"italic\">a</span></p>\n" },
+        .{ .section = "_a_", .html = "<p><span class=\"italic\">a</span></p>\n" },
+        .{ .section = "**a**", .html = "<p><span class=\"bold\">a</span></p>\n" },
+        .{ .section = "__a__", .html = "<p><span class=\"bold\">a</span></p>\n" },
+        .{ .section = "Before **bold text** and _italic text_ after.", .html = "<p>Before <span class=\"bold\">bold text</span> and <span class=\"italic\">italic text</span> after.</p>\n" },
+        .{ .section = "*one* **two** _three_ __four__", .html = "<p><span class=\"italic\">one</span> <span class=\"bold\">two</span> <span class=\"italic\">three</span> <span class=\"bold\">four</span></p>\n" },
+        .{ .section = "**bold***italic*", .html = "<p><span class=\"bold\">bold</span><span class=\"italic\">italic</span></p>\n" },
+        .{ .section = "## A **bold** heading", .html = "<h2>A <span class=\"bold\">bold</span> heading</h2>\n" },
+        .{ .section = "- An _italic_ item", .html = "<li> An <span class=\"italic\">italic</span> item</li>\n" },
+        .{ .section = "*See* [Example](https://example.com) **today**.", .html = "<p><span class=\"italic\">See</span> \n<a href=\"https://example.com\">Example</a>\n <span class=\"bold\">today</span>.</p>\n" },
+    };
+    for (cases) |case| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try parse_section(case.section, &entry, allocator);
+        try std.testing.expectEqualStrings(case.html, entry.content);
+    }
+}
+
+test "parse_section preserves unmatched and empty emphasis markers" {
+    const allocator = std.testing.allocator;
+    const sections = [_][]const u8{
+        "*",                  "_",                   "**",      "__",      "***",      "___",              "****",               "____",
+        "Before *unfinished", "Before __unfinished", "**bold*", "__bold_", "*italic_", "Trailing marker*", "Trailing markers**",
+    };
+    for (sections) |section| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        const html = try std.fmt.allocPrint(allocator, "<p>{s}</p>\n", .{section});
+        defer allocator.free(html);
+        try parse_section(section, &entry, allocator);
+        try std.testing.expectEqualStrings(html, entry.content);
+    }
 }
 
 test "parse_section renders a link" {
