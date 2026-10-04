@@ -60,7 +60,7 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
 }
 
 /// Renders inline content, recursively parsing the text inside emphasis spans.
-fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allocator) anyerror!void {
+fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allocator) !void {
     var count: usize = 0;
     var old_count: usize = 0;
 
