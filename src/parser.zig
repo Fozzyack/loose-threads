@@ -18,6 +18,7 @@ const eql = std.mem.eql;
 fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
     if (section.len == 0) return;
     var count: usize = 0;
+    var header_count: usize = 0;
     var has_headers = false;
     while (count < section.len and section[count] == '#') : (count += 1) {
         if (count >= 5) break;
@@ -34,9 +35,50 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
         defer allocator.free(header);
         try entry.add_content(header, allocator);
     }
+    header_count = count;
+
+    var content: Io.Writer.Allocating = .init(allocator);
+    defer content.deinit();
+    var content_writer = &content.writer;
+    var old_count: usize = count;
+
+    while (count < section.len) {
+        if (section[count] == '[') {
+            link: {
+                const tag_idx = count + (mem.findScalar(u8, section[count..], ']') orelse break :link);
+                if (tag_idx + 1 < section.len and section[tag_idx + 1] == '(') {
+                    const closing_tag_idx = tag_idx + 1 + (mem.findScalar(u8, section[tag_idx + 1 ..], ')') orelse break :link);
+                    try content_writer.writeAll(section[old_count..count]);
+                    const is_image: bool =
+                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpg") != null or
+                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpeg") != null or
+                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".png") != null or
+                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".gif") != null;
+                    const name: []const u8 = section[count + 1 .. tag_idx];
+                    const link: []const u8 = section[tag_idx + 2 .. closing_tag_idx];
+                    if (is_image) {
+                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\"></img>", .{ link, name });
+                        defer allocator.free(tag);
+                        try content_writer.writeAll(tag);
+                    } else {
+                        const tag = try std.fmt.allocPrint(allocator, "\n<a href=\"{s}\">{s}</a>\n", .{ link, name });
+                        defer allocator.free(tag);
+                        try content_writer.writeAll(tag);
+                    }
+                    count = closing_tag_idx + 1;
+                    old_count = count;
+                    continue;
+                }
+            }
+        }
+        count += 1;
+    }
+    try content_writer.writeAll(section[old_count..count]);
+    try entry.add_content(content.written(), allocator);
+
     try entry.add_content(section[count..section.len], allocator);
     if (has_headers) {
-        const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{count - 1});
+        const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
         defer allocator.free(close_tag);
         try entry.add_content(close_tag, allocator);
     } else {
@@ -74,6 +116,77 @@ test "parse_section paragraph" {
     const section: []const u8 = "some # test entry!";
     try parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
+}
+
+test "parse_section renders a link" {
+    const allocator = std.testing.allocator;
+    var entry: Entry = .{ .name = &.{} };
+    defer entry.deinit(allocator);
+
+    try parse_section("[Example](https://example.com)", &entry, allocator);
+
+    try std.testing.expectEqualStrings("<p>\n<a href=\"https://example.com\">Example</a>\n</p>\n", entry.content);
+}
+
+test "parse_section preserves text around links in paragraphs and headings" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { section: []const u8, html: []const u8 }{
+        .{
+            .section = "Visit [Example](https://example.com) today.",
+            .html = "<p>Visit \n<a href=\"https://example.com\">Example</a>\n today.</p>\n",
+        },
+        .{
+            .section = "## Visit [Example](https://example.com)",
+            .html = "<h2>Visit \n<a href=\"https://example.com\">Example</a>\n</h2>\n",
+        },
+        .{
+            .section = "[One](https://example.com/one) and [Two](https://example.com/two).",
+            .html = "<p>\n<a href=\"https://example.com/one\">One</a>\n and \n<a href=\"https://example.com/two\">Two</a>\n.</p>\n",
+        },
+    };
+    for (cases) |case| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try parse_section(case.section, &entry, allocator);
+        try std.testing.expectEqualStrings(case.html, entry.content);
+    }
+}
+
+test "parse_section renders supported image extensions with alt text" {
+    const allocator = std.testing.allocator;
+    // This parser identifies images by extension, using [alt](url) without '!'.
+    const extensions = [_][]const u8{ "jpg", "jpeg", "png", "gif" };
+    for (extensions) |extension| {
+        const section = try std.fmt.allocPrint(allocator, "Before [A photo](https://example.com/photo.{s}) after.", .{extension});
+        defer allocator.free(section);
+        const html = try std.fmt.allocPrint(allocator, "<p>Before \n<img src=\"https://example.com/photo.{s}\" alt=\"A photo\"></img> after.</p>\n", .{extension});
+        defer allocator.free(html);
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+
+        try parse_section(section, &entry, allocator);
+        try std.testing.expectEqualStrings(html, entry.content);
+    }
+}
+
+test "parse_section preserves incomplete link syntax as plain text" {
+    const allocator = std.testing.allocator;
+    const sections = [_][]const u8{
+        "[",
+        "[label",
+        "[label]",
+        "[label](https://example.com",
+        "[label] https://example.com",
+    };
+    for (sections) |section| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        const html = try std.fmt.allocPrint(allocator, "<p>{s}</p>\n", .{section});
+        defer allocator.free(html);
+
+        try parse_section(section, &entry, allocator);
+        try std.testing.expectEqualStrings(html, entry.content);
+    }
 }
 
 /// Shifts past leading newline bytes before the first non-newline byte in the
