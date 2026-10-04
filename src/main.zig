@@ -17,9 +17,9 @@ pub fn main(init: std.process.Init) !void {
     const public_dir = try Dir.cwd().openDir(init.io, "public", .{ .iterate = true });
     defer public_dir.close(init.io);
 
-    const css_dir = try Dir.cwd().openDir(init.io, "static", .{ .iterate = true });
-    defer css_dir.close(init.io);
-    try assets.copy_css(css_dir, public_dir, init.io, init.arena.allocator());
+    const static_dir = try Dir.cwd().openDir(init.io, "static", .{ .iterate = true });
+    defer static_dir.close(init.io);
+    try assets.copy_assets(static_dir, public_dir, init.io, init.arena.allocator());
 
     const markdown_dir = try Dir.cwd().openDir(init.io, "markdown", .{ .iterate = true });
     defer markdown_dir.close(init.io);
