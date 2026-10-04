@@ -45,12 +45,15 @@ Welcome to my blog.
 
 Metadata is project-specific, not full YAML. Keep `---` delimiters on their own lines and end body lines with newlines. Dates and timestamps are optional; timestamps use Unix seconds and take precedence over dates.
 
+`templates/page.html` supports `{{ name }}`, `{{ description }}`, and `{{ content }}`. Names and descriptions are HTML-escaped; content is rendered HTML. Quote description attributes: `content="{{ description }}"`.
+
 ## Tests
 
 ```sh
 zig test src/entries.zig
 zig test src/parser.zig
 zig test src/templates.zig --test-filter create_homepage_post
+zig test src/templates.zig --test-filter render_post_page
 ```
 
 ## Next steps
