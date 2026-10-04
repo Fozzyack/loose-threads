@@ -44,8 +44,25 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
 
     var content: Io.Writer.Allocating = .init(allocator);
     defer content.deinit();
-    var content_writer = &content.writer;
-    var old_count: usize = count;
+    try parse_inline(section[count..], &content.writer, allocator);
+    try entry.add_content(content.written(), allocator);
+
+    if (is_header) {
+        const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
+        defer allocator.free(close_tag);
+        try entry.add_content(close_tag, allocator);
+    } else if (is_list) {
+        try entry.add_content("</li>", allocator);
+    } else {
+        try entry.add_content("</p>", allocator);
+    }
+    try entry.add_content("\n", allocator);
+}
+
+/// Renders inline content, recursively parsing the text inside emphasis spans.
+fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allocator) anyerror!void {
+    var count: usize = 0;
+    var old_count: usize = 0;
 
     while (count < section.len) {
         if (section[count] == '[') {
@@ -90,9 +107,11 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
 
                 try content_writer.writeAll(section[old_count..count]);
                 const class = if (is_bold) "bold" else "italic";
-                const tag = try std.fmt.allocPrint(allocator, "<span class=\"{s}\">{s}</span>", .{ class, section[text_start..text_end] });
+                const tag = try std.fmt.allocPrint(allocator, "<span class=\"{s}\">", .{class});
                 defer allocator.free(tag);
                 try content_writer.writeAll(tag);
+                try parse_inline(section[text_start..text_end], content_writer, allocator);
+                try content_writer.writeAll("</span>");
                 count = text_end + delimiter_len;
                 old_count = count;
                 continue;
@@ -104,21 +123,6 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
         count += 1;
     }
     try content_writer.writeAll(section[old_count..count]);
-    try entry.add_content(content.written(), allocator);
-
-    try entry.add_content(section[count..section.len], allocator);
-    if (is_header) {
-        const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
-        defer allocator.free(close_tag);
-        try entry.add_content(close_tag, allocator);
-    } else if (is_list) {
-        try entry.add_content("</li>", allocator);
-    } else {
-        const close_tag = try std.fmt.allocPrint(allocator, "</p>", .{});
-        defer allocator.free(close_tag);
-        try entry.add_content(close_tag, allocator);
-    }
-    try entry.add_content("\n", allocator);
 }
 test "parse_section with header" {
     const test_allocator: std.mem.Allocator = std.testing.allocator;
@@ -201,6 +205,22 @@ test "parse_section keeps extra closing markers inside italic text" {
         defer entry.deinit(allocator);
         try parse_section(case.section, &entry, allocator);
         try std.testing.expectEqualStrings(case.html, entry.content);
+    }
+}
+
+test "parse_section renders italic inside bold" {
+    const allocator = std.testing.allocator;
+    const sections = [_][]const u8{
+        "**what *test* what**",
+        "__what _test_ what__",
+        "**what _test_ what**",
+        "__what *test* what__",
+    };
+    for (sections) |section| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try parse_section(section, &entry, allocator);
+        try std.testing.expectEqualStrings("<p><span class=\"bold\">what <span class=\"italic\">test</span> what</span></p>\n", entry.content);
     }
 }
 
