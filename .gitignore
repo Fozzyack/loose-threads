@@ -3,4 +3,5 @@ test_img.jpg
 zig-out/
 public/
 *.out
-markdown/**/*.md
+markdown/*
+!markdown/markdown_files_here
