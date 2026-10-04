@@ -1,31 +1,19 @@
-# A blog built with Zig
+# Loose Threads
 
-A learning project: a single-threaded, dependency-free static-site generator built with **Zig 0.16.0**, intended for Cloudflare Pages.
+A personal programming blog by Frasier Sundra, built with a single-threaded, dependency-free static-site generator in **Zig 0.16.0**.
 
-## Current status
-
-- Reads posts from `markdown/` and renders basic headings and paragraphs.
-- Uses `templates/` to generate a homepage and a `{slug}.html` page per post.
-- Displays dates, preferring UTC timestamps, and copies CSS from `static/`.
+Posts live in `markdown/`, HTML templates in `templates/`, and CSS, JavaScript, and images in `static/`. The generator writes everything to `public/` for static hosting such as Cloudflare Pages. The homepage includes a compact thread timeline with a looping light, pause control, and reduced-motion support.
 
 ## Build and run
-
-From the repository root:
 
 ```sh
 zig build
 ./zig-out/bin/blog-generator
 ```
 
-The executable is built into `zig-out/bin/`. Running it **deletes and recreates `public/`**, the generated site directory.
+Run from the repository root. Generation **deletes and recreates `public/`**.
 
-Optionally format generated HTML (requires `prettier` on your `PATH`):
-
-```sh
-zig build format-html
-```
-
-Formatting updates existing files only; it does not build or generate the site.
+Optional: `zig build format-html` formats existing output (requires Prettier).
 
 ## Post format
 
@@ -35,7 +23,6 @@ name: Hello World
 description: Learning Zig by building a blog.
 slug: hello-world
 date: 2026-10-01
-timestamp: 1790858096
 ---
 
 # Hello World
@@ -43,9 +30,7 @@ timestamp: 1790858096
 Welcome to my blog.
 ```
 
-Metadata is project-specific, not full YAML. Keep `---` delimiters on their own lines and end body lines with newlines. Dates and timestamps are optional; timestamps use Unix seconds and take precedence over dates.
-
-`templates/page.html` supports `{{ name }}`, `{{ description }}`, and `{{ content }}`. Names and descriptions are HTML-escaped; content is rendered HTML. Quote description attributes: `content="{{ description }}"`.
+Metadata is project-specific, not full YAML. Dates are optional; an optional `timestamp` (Unix seconds, UTC) takes precedence. Posts are listed newest first. Markdown support is currently basic headings and paragraphs.
 
 ## Tests
 
@@ -55,7 +40,3 @@ zig test src/parser.zig
 zig test src/templates.zig --test-filter create_homepage_post
 zig test src/templates.zig --test-filter render_post_page
 ```
-
-## Next steps
-
-Date sorting, richer Markdown support, complete HTML escaping, and Cloudflare Pages deployment.

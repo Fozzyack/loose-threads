@@ -57,7 +57,7 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
                     const name: []const u8 = section[count + 1 .. tag_idx];
                     const link: []const u8 = section[tag_idx + 2 .. closing_tag_idx];
                     if (is_image) {
-                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\"></img>", .{ link, name });
+                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\">", .{ link, name });
                         defer allocator.free(tag);
                         try content_writer.writeAll(tag);
                     } else {
@@ -159,7 +159,7 @@ test "parse_section renders supported image extensions with alt text" {
     for (extensions) |extension| {
         const section = try std.fmt.allocPrint(allocator, "Before [A photo](https://example.com/photo.{s}) after.", .{extension});
         defer allocator.free(section);
-        const html = try std.fmt.allocPrint(allocator, "<p>Before \n<img src=\"https://example.com/photo.{s}\" alt=\"A photo\"></img> after.</p>\n", .{extension});
+        const html = try std.fmt.allocPrint(allocator, "<p>Before \n<img src=\"https://example.com/photo.{s}\" alt=\"A photo\"> after.</p>\n", .{extension});
         defer allocator.free(html);
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
