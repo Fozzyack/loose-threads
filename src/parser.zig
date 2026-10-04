@@ -82,8 +82,11 @@ fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void
             const delimiter = section[count .. count + delimiter_len];
             const text_start = count + delimiter_len;
             bold_italic: {
-                const text_end = text_start + (mem.find(u8, section[text_start..], delimiter) orelse break :bold_italic);
+                var text_end = text_start + (mem.find(u8, section[text_start..], delimiter) orelse break :bold_italic);
                 if (text_end == text_start) break :bold_italic;
+                if (!is_bold) {
+                    while (text_end + 1 < section.len and section[text_end + 1] == section[count]) : (text_end += 1) {}
+                }
 
                 try content_writer.writeAll(section[old_count..count]);
                 const class = if (is_bold) "bold" else "italic";
@@ -182,6 +185,22 @@ test "parse_section preserves unmatched and empty emphasis markers" {
         defer allocator.free(html);
         try parse_section(section, &entry, allocator);
         try std.testing.expectEqualStrings(html, entry.content);
+    }
+}
+
+test "parse_section keeps extra closing markers inside italic text" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { section: []const u8, html: []const u8 }{
+        .{ .section = "**what** *test** **what**", .html = "<p><span class=\"bold\">what</span> <span class=\"italic\">test*</span> <span class=\"bold\">what</span></p>\n" },
+        .{ .section = "__what__ _test__ __what__", .html = "<p><span class=\"bold\">what</span> <span class=\"italic\">test_</span> <span class=\"bold\">what</span></p>\n" },
+        .{ .section = "*test**", .html = "<p><span class=\"italic\">test*</span></p>\n" },
+        .{ .section = "*test*** *valid*", .html = "<p><span class=\"italic\">test**</span> <span class=\"italic\">valid</span></p>\n" },
+    };
+    for (cases) |case| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try parse_section(case.section, &entry, allocator);
+        try std.testing.expectEqualStrings(case.html, entry.content);
     }
 }
 
