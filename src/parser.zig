@@ -667,7 +667,7 @@ test "code block integration highlights Zig" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer = <span class=\"tok-number\">42</span>;</code></pre>\n<p>After</p>\n",
+        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre>\n<p>After</p>\n",
         posts[0].content,
     );
 }
@@ -687,7 +687,7 @@ test "code block integration escapes plain code without stale languages" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x = <span class=\"tok-number\">42</span>;</code></pre>\n" ++
+        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre>\n" ++
             "<pre class=\"code-section\"><code>&lt;a&gt; &amp; 42</code></pre>\n" ++
             "<pre class=\"code-section\"><code>const x = 42;</code></pre>\n",
         posts[0].content,

@@ -97,8 +97,20 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
             "<span class=\"tok-builtin\">"
         else if (std.mem.eql(u8, capture_name, "function"))
             "<span class=\"tok-function\">"
-        else
-            return TreeSitterParserError.UnknownCapture;
+        else if (std.mem.eql(u8, capture_name, "operator"))
+            "<span class=\"tok-operator\">"
+        else if (std.mem.eql(u8, capture_name, "bracket"))
+            "<span class=\"tok-bracket\">"
+        else if (std.mem.eql(u8, capture_name, "field")) field: {
+            // A method name is also a field; emit only one capture and retain
+            // its function color when the field expression is the call target.
+            const parent = ts.ts_node_parent(capture.node);
+            const grandparent = ts.ts_node_parent(parent);
+            const call_target = ts.ts_node_child_by_field_name(grandparent, "function", 8);
+            const is_method = std.mem.eql(u8, std.mem.span(ts.ts_node_type(grandparent)), "call_expression") and
+                ts.ts_node_eq(call_target, parent);
+            break :field if (is_method) "<span class=\"tok-function\">" else "<span class=\"tok-field\">";
+        } else return TreeSitterParserError.UnknownCapture;
 
         try writer.writeAll(opening_tag);
         try writeEscaped(writer, source[start..end]);
@@ -121,7 +133,7 @@ test "render highlights Zig keywords and numbers" {
     var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer html.deinit();
     try render("const answer = 42;\n", "zig", &html.writer);
-    try std.testing.expectEqualStrings("<span class=\"tok-keyword\">const</span> answer = <span class=\"tok-number\">42</span>;\n", html.written());
+    try std.testing.expectEqualStrings("<span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;\n", html.written());
 }
 
 test "render escapes unknown and omitted languages" {
@@ -146,43 +158,97 @@ test "render highlights additional Zig tokens" {
     const cases = [_]struct { source: []const u8, html: []const u8 }{
         .{
             .source = "pub fn greet() void { return; }",
-            .html = "<span class=\"tok-keyword\">pub</span> <span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">greet</span>() <span class=\"tok-type\">void</span> { <span class=\"tok-keyword\">return</span>; }",
+            .html = "<span class=\"tok-keyword\">pub</span> <span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">greet</span><span class=\"tok-bracket\">(</span><span class=\"tok-bracket\">)</span> <span class=\"tok-type\">void</span> <span class=\"tok-bracket\">{</span> <span class=\"tok-keyword\">return</span>; <span class=\"tok-bracket\">}</span>",
         },
         .{
             .source = "var enabled: bool = true;",
-            .html = "<span class=\"tok-keyword\">var</span> enabled: <span class=\"tok-type\">bool</span> = <span class=\"tok-constant\">true</span>;",
+            .html = "<span class=\"tok-keyword\">var</span> enabled: <span class=\"tok-type\">bool</span> <span class=\"tok-operator\">=</span> <span class=\"tok-constant\">true</span>;",
         },
         .{
             .source = "const value: f64 = 3.14;",
-            .html = "<span class=\"tok-keyword\">const</span> value: <span class=\"tok-type\">f64</span> = <span class=\"tok-number\">3.14</span>;",
+            .html = "<span class=\"tok-keyword\">const</span> value: <span class=\"tok-type\">f64</span> <span class=\"tok-operator\">=</span> <span class=\"tok-number\">3.14</span>;",
         },
         .{
             .source = "const text = \"const 42 < & >\\n\"; // return 123 < & >\n",
-            .html = "<span class=\"tok-keyword\">const</span> text = <span class=\"tok-string\">\"const 42 &lt; &amp; &gt;\\n\"</span>; <span class=\"tok-comment\">// return 123 &lt; &amp; &gt;</span>\n",
+            .html = "<span class=\"tok-keyword\">const</span> text <span class=\"tok-operator\">=</span> <span class=\"tok-string\">\"const 42 &lt; &amp; &gt;\\n\"</span>; <span class=\"tok-comment\">// return 123 &lt; &amp; &gt;</span>\n",
         },
         .{
             .source = "const letter = '<';",
-            .html = "<span class=\"tok-keyword\">const</span> letter = <span class=\"tok-string\">'&lt;'</span>;",
+            .html = "<span class=\"tok-keyword\">const</span> letter <span class=\"tok-operator\">=</span> <span class=\"tok-string\">'&lt;'</span>;",
         },
         .{
             .source = "const text =\n    \\\\const 42 < & >\n;",
-            .html = "<span class=\"tok-keyword\">const</span> text =\n    <span class=\"tok-string\">\\\\const 42 &lt; &amp; &gt;</span>\n;",
+            .html = "<span class=\"tok-keyword\">const</span> text <span class=\"tok-operator\">=</span>\n    <span class=\"tok-string\">\\\\const 42 &lt; &amp; &gt;</span>\n;",
         },
         .{
             .source = "const size = @sizeOf(u32);",
-            .html = "<span class=\"tok-keyword\">const</span> size = <span class=\"tok-builtin\">@sizeOf</span>(<span class=\"tok-type\">u32</span>);",
+            .html = "<span class=\"tok-keyword\">const</span> size <span class=\"tok-operator\">=</span> <span class=\"tok-builtin\">@sizeOf</span><span class=\"tok-bracket\">(</span><span class=\"tok-type\">u32</span><span class=\"tok-bracket\">)</span>;",
         },
         .{
             .source = "const missing = null; var value: u8 = undefined;",
-            .html = "<span class=\"tok-keyword\">const</span> missing = <span class=\"tok-constant\">null</span>; <span class=\"tok-keyword\">var</span> value: <span class=\"tok-type\">u8</span> = <span class=\"tok-constant\">undefined</span>;",
+            .html = "<span class=\"tok-keyword\">const</span> missing <span class=\"tok-operator\">=</span> <span class=\"tok-constant\">null</span>; <span class=\"tok-keyword\">var</span> value: <span class=\"tok-type\">u8</span> <span class=\"tok-operator\">=</span> <span class=\"tok-constant\">undefined</span>;",
         },
         .{
             .source = "fn run() void { greet(); object.call(); }",
-            .html = "<span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">run</span>() <span class=\"tok-type\">void</span> { <span class=\"tok-function\">greet</span>(); object.<span class=\"tok-function\">call</span>(); }",
+            .html = "<span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">run</span><span class=\"tok-bracket\">(</span><span class=\"tok-bracket\">)</span> <span class=\"tok-type\">void</span> <span class=\"tok-bracket\">{</span> <span class=\"tok-function\">greet</span><span class=\"tok-bracket\">(</span><span class=\"tok-bracket\">)</span>; object.<span class=\"tok-function\">call</span><span class=\"tok-bracket\">(</span><span class=\"tok-bracket\">)</span>; <span class=\"tok-bracket\">}</span>",
         },
         .{
             .source = "fn run() void { if (false) unreachable; }",
-            .html = "<span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">run</span>() <span class=\"tok-type\">void</span> { <span class=\"tok-keyword\">if</span> (<span class=\"tok-constant\">false</span>) <span class=\"tok-constant\">unreachable</span>; }",
+            .html = "<span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">run</span><span class=\"tok-bracket\">(</span><span class=\"tok-bracket\">)</span> <span class=\"tok-type\">void</span> <span class=\"tok-bracket\">{</span> <span class=\"tok-keyword\">if</span> <span class=\"tok-bracket\">(</span><span class=\"tok-constant\">false</span><span class=\"tok-bracket\">)</span> <span class=\"tok-constant\">unreachable</span>; <span class=\"tok-bracket\">}</span>",
+        },
+    };
+    for (cases) |case| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(case.source, "zig", &html.writer);
+        try std.testing.expectEqualStrings(case.html, html.written());
+    }
+}
+
+test "render highlights arithmetic operators and all brackets" {
+    var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer html.deinit();
+    try render("const result = (a + b - c) / d * values[index]; const item = .{};", "zig", &html.writer);
+    try std.testing.expectEqualStrings(
+        "<span class=\"tok-keyword\">const</span> result <span class=\"tok-operator\">=</span> <span class=\"tok-bracket\">(</span>a <span class=\"tok-operator\">+</span> b <span class=\"tok-operator\">-</span> c<span class=\"tok-bracket\">)</span> <span class=\"tok-operator\">/</span> d <span class=\"tok-operator\">*</span> values<span class=\"tok-bracket\">[</span>index<span class=\"tok-bracket\">]</span>; <span class=\"tok-keyword\">const</span> item <span class=\"tok-operator\">=</span> .<span class=\"tok-bracket\">{</span><span class=\"tok-bracket\">}</span>;",
+        html.written(),
+    );
+}
+
+test "render highlights fields without overlapping method names" {
+    const cases = [_]struct { source: []const u8, expected: []const u8 }{
+        .{ .source = "const x = object.field;", .expected = "object.<span class=\"tok-field\">field</span>;" },
+        .{ .source = "const x = object.inner.field;", .expected = "object.<span class=\"tok-field\">inner</span>.<span class=\"tok-field\">field</span>;" },
+        .{ .source = "const x = .{ .field = 42 };", .expected = ".<span class=\"tok-field\">field</span> <span class=\"tok-operator\">=</span>" },
+        .{ .source = "const Item = struct { field: u32 };", .expected = "<span class=\"tok-field\">field</span>: <span class=\"tok-type\">u32</span>" },
+        .{ .source = "fn run() void { object.inner.call(); }", .expected = "object.<span class=\"tok-field\">inner</span>.<span class=\"tok-function\">call</span>" },
+        .{ .source = "fn run() void { object.call.field(); }", .expected = "object.<span class=\"tok-field\">call</span>.<span class=\"tok-function\">field</span>" },
+    };
+    for (cases) |case| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(case.source, "zig", &html.writer);
+        try std.testing.expect(std.mem.find(u8, html.written(), case.expected) != null);
+    }
+}
+
+test "render keeps operators and brackets inside comments and strings unmodified" {
+    const cases = [_]struct { source: []const u8, html: []const u8 }{
+        .{
+            .source = "// + - = / * () [] {} < & >\n",
+            .html = "<span class=\"tok-comment\">// + - = / * () [] {} &lt; &amp; &gt;</span>\n",
+        },
+        .{
+            .source = "/// field docs + ()\nconst x = 42;",
+            .html = "<span class=\"tok-comment\">/// field docs + ()</span>\n<span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;",
+        },
+        .{
+            .source = "//! module docs * []\n",
+            .html = "<span class=\"tok-comment\">//! module docs * []</span>\n",
+        },
+        .{
+            .source = "const text = \"+ - = / * () [] {}\";",
+            .html = "<span class=\"tok-keyword\">const</span> text <span class=\"tok-operator\">=</span> <span class=\"tok-string\">\"+ - = / * () [] {}\"</span>;",
         },
     };
     for (cases) |case| {

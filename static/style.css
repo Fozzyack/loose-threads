@@ -655,6 +655,18 @@ pre code {
     color: var(--accent);
 }
 
+.tok-operator {
+    color: #56b6c2;
+}
+
+.tok-bracket {
+    color: var(--text);
+}
+
+.tok-field {
+    color: #eba66c;
+}
+
 /* Language accents distinguish blocks without changing code text contrast. */
 .code-section.language-c {
     --code-accent: #9db9e8;

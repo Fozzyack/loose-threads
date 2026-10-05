@@ -18,6 +18,12 @@
 [(builtin_type) "anyframe"] @type
 (builtin_identifier) @builtin
 
+["+" "-" "=" "/" "*"] @operator
+["(" ")" "[" "]" "{" "}"] @bracket
+
+(field_expression member: (identifier) @field)
+(field_initializer (identifier) @field)
+(container_field name: (identifier) @field)
+
 (function_declaration name: (identifier) @function)
 (call_expression function: (identifier) @function)
-(call_expression function: (field_expression member: (identifier) @function))
