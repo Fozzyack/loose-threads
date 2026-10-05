@@ -7,6 +7,17 @@ extern fn tree_sitter_zig() ?*const ts.TSLanguage;
 
 const ParserError = error{ OutOfMemory, ParseFailed, MissingZigGrammar, IncompatibleGrammar, InvalidHighlightQuery };
 
+fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
+    for (text) |byte| {
+        switch (byte) {
+            '&' => try writer.writeAll("&amp;"),
+            '<' => try writer.writeAll("&lt;"),
+            '>' => try writer.writeAll("&gt;"),
+            else => try writer.writeByte(byte),
+        }
+    }
+}
+
 pub fn check() !void {
     const parser = ts.ts_parser_new() orelse
         return ParserError.OutOfMemory;
