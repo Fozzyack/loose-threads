@@ -12,12 +12,23 @@ const expect = std.testing.expect;
 const eql = std.mem.eql;
 
 const FileParserState = struct {
+    file: Io.File,
     read_buffer: [8192]u8 = undefined,
     used: usize = 0,
     offset: usize = 0,
     has_parsed_metadata: bool = false,
 
-    pub fn strip_newline(self: *FileParserState) void {
+    pub fn read_section(self: *FileParserState, io: Io) !?void {
+        const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
+        if (bytes_read == 0) {
+            if (self.has_parsed_metadata == false) return error.FailedToParseMetadata;
+            return null;
+        }
+        self.offset += bytes_read;
+        self.used += bytes_read;
+    }
+
+    pub fn strip_newlines(self: *FileParserState) void {
         if (self.read_buffer.len == 0) return;
         var newline_count: usize = 0;
         for (self.read_buffer[0..self.used]) |character| {
@@ -27,9 +38,9 @@ const FileParserState = struct {
         self.used -= newline_count;
     }
 
-    pub fn strip_section(self: *FileParserState, newline_idx: usize) void {
-        @memmove(self.read_buffer[0 .. self.used - (newline_idx + 1)], self.read_buffer[newline_idx + 1 .. self.used]);
-        self.used -= newline_idx + 1;
+    pub fn strip_section(self: *FileParserState, idx: usize) void {
+        @memmove(self.read_buffer[0 .. self.used - (idx + 1)], self.read_buffer[(idx + 1)..self.used]);
+        self.used -= (idx + 1);
     }
 };
 
@@ -528,45 +539,33 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
-
-        var read_buffer: [8192]u8 = undefined;
-        var has_parsed_metadata: bool = false;
-        var offset: usize = 0;
-        var used: usize = 0;
-
-        // Read file
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
+
+        var parser_state: FileParserState = .{ .file = file };
+
+        // Read file
 
         var new_entry: Entry = .{};
 
         while (true) {
-            const bytes_read: usize = try file.readPositionalAll(io, read_buffer[used..], offset);
-            if (bytes_read == 0) {
-                if (has_parsed_metadata == false) return error.FailedToParseMetadata;
-                break;
-            }
-
-            offset += bytes_read;
-            used += bytes_read;
-            strip_newline(&read_buffer, &used);
+            try parser_state.read_section(io) orelse break;
+            parser_state.strip_newlines();
 
             while (true) {
-                if (!has_parsed_metadata) {
-                    const metadata_start: usize = mem.find(u8, read_buffer[0..used], "---\n") orelse break;
+                if (!parser_state.has_parsed_metadata) {
+                    const metadata_start: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "---\n") orelse break;
                     if (metadata_start != 0) return error.IncorrectMetadataDelimiter;
-                    const metadata_end: usize = mem.find(u8, read_buffer[0..used], "\n---\n") orelse break;
-                    try parse_metadata(read_buffer[4 .. metadata_end + 1], &new_entry, allocator);
-                    @memmove(read_buffer[0 .. used - (metadata_end + 4)], read_buffer[metadata_end + 4 .. used]);
-                    used -= (metadata_end + 4);
-                    strip_newline(&read_buffer, &used);
-                    has_parsed_metadata = true;
+                    const metadata_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n---\n") orelse break;
+                    try parse_metadata(parser_state.read_buffer[4 .. metadata_end + 1], &new_entry, allocator);
+                    parser_state.strip_section(metadata_end + 3);
+                    parser_state.strip_newlines();
+                    parser_state.has_parsed_metadata = true;
                 } else {
-                    const newline_idx = mem.findScalar(u8, read_buffer[0..used], '\n') orelse break;
-                    try parse_section(read_buffer[0..newline_idx], &new_entry, allocator);
-                    @memmove(read_buffer[0 .. used - (newline_idx + 1)], read_buffer[newline_idx + 1 .. used]);
-                    used -= newline_idx + 1;
-                    strip_newline(&read_buffer, &used);
+                    const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
+                    try parse_section(parser_state.read_buffer[0..newline_idx], &new_entry, allocator);
+                    parser_state.strip_section(newline_idx);
+                    parser_state.strip_newlines();
                 }
             }
         }
