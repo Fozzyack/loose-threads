@@ -17,6 +17,7 @@ const FileParserState = struct {
     used: usize = 0,
     offset: usize = 0,
     has_parsed_metadata: bool = false,
+    current_code_section: bool = false,
 
     pub fn read_section(self: *FileParserState, io: Io) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
@@ -51,6 +52,17 @@ const FileParserState = struct {
 fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
     var section: []u8 = parser_state.read_buffer[0..section_end];
     if (section.len == 0) return;
+    if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
+        if (!parser_state.current_code_section) {
+            const tag = try std.fmt.allocPrint(allocator, "<div class=\"code-section\">", .{});
+            defer allocator.free(tag);
+            try entry.add_content(tag, allocator);
+        } else {
+            try entry.add_content("</div>", allocator);
+        }
+        parser_state.current_code_section = !parser_state.current_code_section;
+        return;
+    }
     var count: usize = 0;
     var header_count: usize = 0;
     var is_header = false;
@@ -570,6 +582,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
             }
         }
 
+        if (parser_state.current_code_section == true) return error.CodeBlockWasNotClosed;
         entries = try allocator.realloc(entries, entries.len + 1);
         entries[entries.len - 1] = new_entry;
     }
