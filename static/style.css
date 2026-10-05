@@ -597,8 +597,8 @@ pre code {
 .code-section {
     max-width: 100%;
     min-width: 0;
-    overflow-x: auto;
-    padding: 1.25rem;
+    overflow: hidden;
+    padding: 0;
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--body-text);
@@ -606,7 +606,7 @@ pre code {
     font-family: var(--mono);
     font-size: 0.875rem;
     line-height: 1.65;
-    white-space: pre;
+    white-space: normal;
     overflow-wrap: normal;
     word-break: normal;
     tab-size: 4;
@@ -620,6 +620,28 @@ pre code {
     color: inherit;
     background: none;
     font: inherit;
+}
+
+.code-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.8125rem;
+}
+
+.code-language-icon {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.code-section pre {
+    padding: 1.25rem;
+    overflow-x: auto;
+    white-space: pre;
 }
 
 .tok-keyword {

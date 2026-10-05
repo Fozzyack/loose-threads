@@ -356,13 +356,19 @@ fn parse_code_block(parser_state: *FileParserState, code_end: usize, entry: *Ent
     var html: Io.Writer.Allocating = .init(allocator);
     defer html.deinit();
     const language = parser_state.code_language[0..parser_state.code_language_len];
+    const icon = if (eql(u8, language, "zig")) "zig" else if (eql(u8, language, "c")) "c" else if (eql(u8, language, "python")) "python" else "code";
+    const label = if (eql(u8, language, "zig")) "Zig" else if (eql(u8, language, "c")) "C" else if (eql(u8, language, "python")) "Python" else if (language.len == 0) "Code" else language;
+    try html.writer.print("<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>", .{icon});
+    // Render the label as escaped plain text, never as markup or an asset path.
+    try highlight.render(label, "", &html.writer);
+    try html.writer.writeAll("</span></div>");
     // Only known language names are included in HTML attributes.
     try html.writer.writeAll(if (eql(u8, language, "zig"))
-        "<pre class=\"code-section\"><code class=\"language-zig\">"
+        "<pre><code class=\"language-zig\">"
     else
-        "<pre class=\"code-section\"><code>");
+        "<pre><code>");
     try highlight.render(parser_state.read_buffer[0..code_end], language, &html.writer);
-    try html.writer.writeAll("</code></pre>\n");
+    try html.writer.writeAll("</code></pre></div>\n");
     try entry.add_content(html.written(), allocator);
 }
 
@@ -667,7 +673,7 @@ test "code block integration highlights Zig" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre>\n<p>After</p>\n",
+        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre></div>\n<p>After</p>\n",
         posts[0].content,
     );
 }
@@ -687,9 +693,33 @@ test "code block integration escapes plain code without stale languages" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre>\n" ++
-            "<pre class=\"code-section\"><code>&lt;a&gt; &amp; 42</code></pre>\n" ++
-            "<pre class=\"code-section\"><code>const x = 42;</code></pre>\n",
+        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-c.svg\" alt=\"\" width=\"20\" height=\"20\"><span>C</span></div><pre><code>&lt;a&gt; &amp; 42</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Code</span></div><pre><code>const x = 42;</code></pre></div>\n",
         posts[0].content,
     );
+}
+
+test "code block integration shows Python and safely labels unknown languages" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { language: []const u8, icon: []const u8, label: []const u8 }{
+        .{ .language = "python", .icon = "python", .label = "Python" },
+        .{ .language = "rust", .icon = "code", .label = "rust" },
+        .{ .language = "<img>&", .icon = "code", .label = "&lt;img&gt;&amp;" },
+    };
+    for (cases) |case| {
+        var state: FileParserState = .{ .file = undefined };
+        try state.change_language(case.language);
+        @memcpy(state.read_buffer[0..5], "hello");
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try parse_code_block(&state, 5, &entry, allocator);
+        const expected = try std.fmt.allocPrint(
+            allocator,
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre><code>hello</code></pre></div>\n",
+            .{ case.icon, case.label },
+        );
+        defer allocator.free(expected);
+        try std.testing.expectEqualStrings(expected, entry.content);
+    }
 }
