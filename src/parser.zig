@@ -17,7 +17,7 @@ const FileParserState = struct {
     used: usize = 0,
     offset: usize = 0,
     has_parsed_metadata: bool = false,
-    current_code_section: bool = false,
+    in_code_block: bool = false,
     code_language: [16]u8 = undefined,
 
     pub fn read_section(self: *FileParserState, io: Io) !?void {
@@ -126,8 +126,8 @@ fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allo
 fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
     var section: []u8 = parser_state.read_buffer[0..section_end];
     if (section.len == 0) return;
-    if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
-        if (!parser_state.current_code_section) {
+    if (section.len >= 3  and mem.find(u8, section[0..3], "```") != null) {
+        if (!parser_state.in_code_block) {
             if (section.len > 3) {
                 const language = std.mem.trim(u8, section[3..], " \t\r");
                 try parser_state.change_language(language);
@@ -139,15 +139,15 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
                 defer allocator.free(tag);
                 try entry.add_content(tag, allocator);
             }
-        }
-        parser_state.current_code_section = !parser_state.current_code_section;
+        } else return;
+        parser_state.in_code_block= !parser_state.in_code_block;
         return;
     }
     var count: usize = 0;
     var header_count: usize = 0;
     var is_header = false;
     var is_list = false;
-    while (count < section.len and section[count] == '#' and !parser_state.current_code_section) : (count += 1) {
+    while (count < section.len and section[count] == '#' and !parser_state.in_code_block) : (count += 1) {
         if (count >= 5) break;
     }
     if (count >= section.len) return error.InvalidLine;
@@ -354,6 +354,13 @@ test "parse_section preserves incomplete link syntax as plain text" {
         try parse_section(section, &entry, allocator);
         try std.testing.expectEqualStrings(html, entry.content);
     }
+}
+
+// Parse Code block
+fn parse_code_block(parser_state: *FileParserState, code_end: usize, entry: *Entry, allocator: Allocator) !void {
+    const code_block: []u8 = parser_state.read_buffer[0..code_end];
+    try entry.add_content(code_block, allocator);
+    try entry.add_content("</div>", allocator);
 }
 
 /// Shifts past leading newline bytes before the first non-newline byte in the
@@ -588,6 +595,12 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     parser_state.strip_section(metadata_end + 3);
                     parser_state.strip_newlines();
                     parser_state.has_parsed_metadata = true;
+                } else if (parser_state.in_code_block) {
+                    const code_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n```") orelse return error.CouldNotFindEndOfCodeBlock;
+                    try parse_code_block(&parser_state, code_end, &new_entry, allocator);
+                    parser_state.strip_section(code_end + 3);
+                    parser_state.strip_newlines();
+                    parser_state.in_code_block = false;
                 } else {
                     const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
                     try parse_section(&parser_state, newline_idx, &new_entry, allocator);
@@ -597,7 +610,6 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
             }
         }
 
-        if (parser_state.current_code_section == true) return error.CodeBlockWasNotClosed;
         entries = try allocator.realloc(entries, entries.len + 1);
         entries[entries.len - 1] = new_entry;
     }
