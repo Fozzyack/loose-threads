@@ -11,14 +11,6 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 
-const CodeLanguages = enum {
-    None,
-    C,
-    Python,
-    Cpp,
-    Zig,
-};
-
 const FileParserState = struct {
     file: Io.File,
     read_buffer: [8192]u8 = undefined,
@@ -26,7 +18,7 @@ const FileParserState = struct {
     offset: usize = 0,
     has_parsed_metadata: bool = false,
     current_code_section: bool = false,
-    code_language: CodeLanguages = CodeLanguages.None,
+    code_language: []u8 = undefined,
 
     pub fn read_section(self: *FileParserState, io: Io) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
@@ -36,6 +28,11 @@ const FileParserState = struct {
         }
         self.offset += bytes_read;
         self.used += bytes_read;
+    }
+
+    pub fn add_code_language(self: *FileParserState, language: []const u8, allocator: Allocator) !void {
+        const trim_lang = std.mem.trim(u8, language, " ");
+        self.code_language = allocator.dupe(u8, trim_lang);
     }
 
     pub fn strip_newlines(self: *FileParserState) void {
@@ -63,7 +60,8 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
     if (section.len == 0) return;
     if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
         if (!parser_state.current_code_section) {
-            const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section\">\n", .{});
+            const language = try std.mem.trim(u8, section[3..], " \t\r");
+            const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section language-{s}\">\n", .{language});
             defer allocator.free(tag);
             try entry.add_content(tag, allocator);
         } else {
