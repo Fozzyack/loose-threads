@@ -11,6 +11,14 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 
+const CodeLanguages = enum {
+    None,
+    C,
+    Python,
+    Cpp,
+    Zig,
+};
+
 const FileParserState = struct {
     file: Io.File,
     read_buffer: [8192]u8 = undefined,
@@ -18,6 +26,7 @@ const FileParserState = struct {
     offset: usize = 0,
     has_parsed_metadata: bool = false,
     current_code_section: bool = false,
+    code_language: CodeLanguages = CodeLanguages.None,
 
     pub fn read_section(self: *FileParserState, io: Io) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
