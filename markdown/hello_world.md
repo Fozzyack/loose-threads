@@ -8,7 +8,7 @@ timestamp: 1791113140
 
 # Hello World
 
-Welcome to my blog! I've decided to start blogging to document my coding journey. For more information about me, visit [my profile](https://frasier.dev).
+**Welcome** to my blog! I've decided to start blogging to document my coding journey. For more information about me, visit [my profile](https://frasier.dev).
 
 ## Where I'm at
 
