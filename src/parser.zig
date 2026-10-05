@@ -48,7 +48,8 @@ const FileParserState = struct {
 /// Recognizes one to five leading `#` characters followed by a space and skips
 /// empty sections. Text is copied without HTML escaping; a section consisting
 /// only of recognized heading markers returns `error.InvalidLine`.
-fn parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
+fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
+    var section: []u8 = parser_state.read_buffer[0..section_end];
     if (section.len == 0) return;
     var count: usize = 0;
     var header_count: usize = 0;
@@ -368,8 +369,9 @@ test "strip newline no newline" {
 /// or out-of-range timestamps return `error.InvalidMetadataTimestamp`.
 /// Missing separators or newlines return `error.ErrorParsingMetadata`; unknown keys
 /// return `error.InvalidMetadataFlagFound`. Fields already stored remain on failure.
-fn parse_metadata(buffer: []const u8, entry: *Entry, allocator: Allocator) !void {
+fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry: *Entry, allocator: Allocator) !void {
     var start: usize = 0;
+    var buffer: []u8 = parser_state.read_buffer[4 .. metadata_end + 1];
     while (start < buffer.len) {
         const separator_idx = start + (mem.findScalar(u8, buffer[start..], ':') orelse return error.ErrorParsingMetadata);
         const newline_idx = start + (mem.findScalar(u8, buffer[start..], '\n') orelse return error.ErrorParsingMetadata);
@@ -544,8 +546,6 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
 
         var parser_state: FileParserState = .{ .file = file };
 
-        // Read file
-
         var new_entry: Entry = .{};
 
         while (true) {
@@ -557,13 +557,13 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     const metadata_start: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "---\n") orelse break;
                     if (metadata_start != 0) return error.IncorrectMetadataDelimiter;
                     const metadata_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n---\n") orelse break;
-                    try parse_metadata(parser_state.read_buffer[4 .. metadata_end + 1], &new_entry, allocator);
+                    try parse_metadata(&parser_state, metadata_end, &new_entry, allocator);
                     parser_state.strip_section(metadata_end + 3);
                     parser_state.strip_newlines();
                     parser_state.has_parsed_metadata = true;
                 } else {
                     const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
-                    try parse_section(parser_state.read_buffer[0..newline_idx], &new_entry, allocator);
+                    try parse_section(&parser_state, newline_idx, &new_entry, allocator);
                     parser_state.strip_section(newline_idx);
                     parser_state.strip_newlines();
                 }
