@@ -18,7 +18,7 @@ const FileParserState = struct {
     offset: usize = 0,
     has_parsed_metadata: bool = false,
     current_code_section: bool = false,
-    code_language: []u8 = undefined,
+    code_language: [16]u8 = undefined,
 
     pub fn read_section(self: *FileParserState, io: Io) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
@@ -30,9 +30,12 @@ const FileParserState = struct {
         self.used += bytes_read;
     }
 
-    pub fn add_code_language(self: *FileParserState, language: []const u8, allocator: Allocator) !void {
-        const trim_lang = std.mem.trim(u8, language, " ");
-        self.code_language = allocator.dupe(u8, trim_lang);
+    pub fn change_language(self: *FileParserState, language: []const u8) !void {
+        if (language.len > self.code_language.len) {
+            return error.InvalidCodeLanguageTooLong;
+        }
+        self.code_language = undefined;
+        @memcpy(self.code_language[0..language.len], language[0..]);
     }
 
     pub fn strip_newlines(self: *FileParserState) void {
@@ -60,10 +63,17 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
     if (section.len == 0) return;
     if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
         if (!parser_state.current_code_section) {
-            const language = try std.mem.trim(u8, section[3..], " \t\r");
-            const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section language-{s}\">\n", .{language});
-            defer allocator.free(tag);
-            try entry.add_content(tag, allocator);
+            if (section.len > 3) {
+                const language = std.mem.trim(u8, section[3..], " \t\r");
+                try parser_state.change_language(language);
+                const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section language-{s}\">\n", .{language});
+                defer allocator.free(tag);
+                try entry.add_content(tag, allocator);
+            } else {
+                const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section\">\n", .{});
+                defer allocator.free(tag);
+                try entry.add_content(tag, allocator);
+            }
         } else {
             try entry.add_content("\n</div>\n", allocator);
         }
