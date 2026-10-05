@@ -5,7 +5,7 @@ const ts = @cImport({
 
 extern fn tree_sitter_zig() ?*const ts.TSLanguage;
 
-const TreeSitterParserError = error{ OutOfMemory, ParseFailed, MissingZigGrammar, IncompatibleGrammar, InvalidHighlightQuery, OverlappingErrors, UnknownCapture };
+const TreeSitterParserError = error{ OutOfMemory, ParseFailed, MissingZigGrammar, IncompatibleGrammar, InvalidHighlightQuery, OverlappingErrors, UnknownCapture, CodeBlockTooLarge };
 
 fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
     for (text) |byte| {
@@ -18,7 +18,15 @@ fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
     }
 }
 
-pub fn check() !void {
+/// Writes escaped code, highlighting the currently supported Zig tokens.
+/// Unknown or omitted languages are rendered as plain escaped text.
+pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Writer) !void {
+    if (!std.mem.eql(u8, language_name, "zig")) {
+        try writeEscaped(writer, source);
+        return;
+    }
+    if (source.len > std.math.maxInt(u32)) return TreeSitterParserError.CodeBlockTooLarge;
+
     const parser = ts.ts_parser_new() orelse
         return TreeSitterParserError.OutOfMemory;
     defer ts.ts_parser_delete(parser);
@@ -30,17 +38,10 @@ pub fn check() !void {
         return TreeSitterParserError.IncompatibleGrammar;
     }
 
-    const source = "const answer = 42;";
     const tree = ts.ts_parser_parse_string(parser, null, source.ptr, @intCast(source.len)) orelse return TreeSitterParserError.ParseFailed;
     defer ts.ts_tree_delete(tree);
 
     const root = ts.ts_tree_root_node(tree);
-
-    const tree_text = ts.ts_node_string(root);
-    if (tree_text == null) return TreeSitterParserError.OutOfMemory;
-    defer ts.free(tree_text);
-
-    std.debug.print("{s}\n", .{std.mem.span(tree_text)});
 
     const query_source =
         \\"const" @keyword
@@ -63,9 +64,6 @@ pub fn check() !void {
     defer ts.ts_query_cursor_delete(cursor);
 
     ts.ts_query_cursor_exec(cursor, query, root);
-    var html: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
-    defer html.deinit();
-
     var position: usize = 0;
     var match: ts.TSQueryMatch = undefined;
     var capture_index: u32 = 0;
@@ -84,7 +82,7 @@ pub fn check() !void {
         // This initial query produces non-overlapping captures.
         if (start < position) return TreeSitterParserError.OverlappingErrors;
 
-        try writeEscaped(&html.writer, source[position..start]);
+        try writeEscaped(writer, source[position..start]);
 
         const opening_tag = if (std.mem.eql(u8, capture_name, "keyword"))
             "<span class=\"tok-keyword\">"
@@ -93,14 +91,13 @@ pub fn check() !void {
         else
             return TreeSitterParserError.UnknownCapture;
 
-        try html.writer.writeAll(opening_tag);
-        try writeEscaped(&html.writer, source[start..end]);
-        try html.writer.writeAll("</span>");
+        try writer.writeAll(opening_tag);
+        try writeEscaped(writer, source[start..end]);
+        try writer.writeAll("</span>");
         position = end;
     }
 
-    try writeEscaped(&html.writer, source[position..]);
-    std.debug.print("{s}\n", .{html.written()});
+    try writeEscaped(writer, source[position..]);
 }
 
 test "writeEscaped preserves whitespace and escapes HTML characters" {
@@ -111,6 +108,27 @@ test "writeEscaped preserves whitespace and escapes HTML characters" {
     try std.testing.expectEqualStrings("\tif (a &lt; b &amp;&amp; b &gt; 0) {\n}\n", html.written());
 }
 
-test "check renders keyword and number captures" {
-    try check();
+test "render highlights Zig keywords and numbers" {
+    var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer html.deinit();
+    try render("const answer = 42;\n", "zig", &html.writer);
+    try std.testing.expectEqualStrings("<span class=\"tok-keyword\">const</span> answer = <span class=\"tok-number\">42</span>;\n", html.written());
+}
+
+test "render escapes unknown and omitted languages" {
+    for ([_][]const u8{ "", "c", "unknown" }) |language| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render("\t<a> & 42\n\n", language, &html.writer);
+        try std.testing.expectEqualStrings("\t&lt;a&gt; &amp; 42\n\n", html.written());
+    }
+}
+
+test "render escapes uncaptured Zig source and handles empty source" {
+    var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer html.deinit();
+    try render("", "zig", &html.writer);
+    try std.testing.expectEqualStrings("", html.written());
+    try render("a < b && b > c", "zig", &html.writer);
+    try std.testing.expectEqualStrings("a &lt; b &amp;&amp; b &gt; c", html.written());
 }

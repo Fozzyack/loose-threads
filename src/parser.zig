@@ -1,5 +1,6 @@
 const std = @import("std");
 const Entry = @import("entries.zig").Entry;
+const highlight = @import("highlight.zig");
 const Io = std.Io;
 
 const Dir = Io.Dir;
@@ -19,12 +20,13 @@ const FileParserState = struct {
     has_parsed_metadata: bool = false,
     in_code_block: bool = false,
     code_language: [16]u8 = undefined,
+    code_language_len: usize = 0,
 
     pub fn read_section(self: *FileParserState, io: Io) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
         if (bytes_read == 0) {
             if (self.has_parsed_metadata == false) return error.FailedToParseMetadata;
-            if (self.in_code_block == true ) return error.EndOfCodeBlockNotFound;
+            if (self.in_code_block == true) return error.EndOfCodeBlockNotFound;
             return null;
         }
         self.offset += bytes_read;
@@ -37,6 +39,7 @@ const FileParserState = struct {
         }
         self.code_language = undefined;
         @memcpy(self.code_language[0..language.len], language[0..]);
+        self.code_language_len = language.len;
     }
 
     pub fn strip_newlines(self: *FileParserState) void {
@@ -127,21 +130,12 @@ fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allo
 fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
     var section: []u8 = parser_state.read_buffer[0..section_end];
     if (section.len == 0) return;
-    if (section.len >= 3  and mem.find(u8, section[0..3], "```") != null) {
+    if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
         if (!parser_state.in_code_block) {
-            if (section.len > 3) {
-                const language = std.mem.trim(u8, section[3..], " \t\r");
-                try parser_state.change_language(language);
-                const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section language-{s}\">\n", .{language});
-                defer allocator.free(tag);
-                try entry.add_content(tag, allocator);
-            } else {
-                const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section\">\n", .{});
-                defer allocator.free(tag);
-                try entry.add_content(tag, allocator);
-            }
+            const language = std.mem.trim(u8, section[3..], " \t\r");
+            try parser_state.change_language(language);
         } else return;
-        parser_state.in_code_block= !parser_state.in_code_block;
+        parser_state.in_code_block = !parser_state.in_code_block;
         return;
     }
     var count: usize = 0;
@@ -359,9 +353,17 @@ test "parse_section preserves incomplete link syntax as plain text" {
 
 // Parse Code block
 fn parse_code_block(parser_state: *FileParserState, code_end: usize, entry: *Entry, allocator: Allocator) !void {
-    const code_block: []u8 = parser_state.read_buffer[0..code_end];
-    try entry.add_content(code_block, allocator);
-    try entry.add_content("\n</div>\n", allocator);
+    var html: Io.Writer.Allocating = .init(allocator);
+    defer html.deinit();
+    const language = parser_state.code_language[0..parser_state.code_language_len];
+    // Only known language names are included in HTML attributes.
+    try html.writer.writeAll(if (eql(u8, language, "zig"))
+        "<pre class=\"code-section\"><code class=\"language-zig\">"
+    else
+        "<pre class=\"code-section\"><code>");
+    try highlight.render(parser_state.read_buffer[0..code_end], language, &html.writer);
+    try html.writer.writeAll("</code></pre>\n");
+    try entry.add_content(html.written(), allocator);
 }
 
 /// Shifts past leading newline bytes before the first non-newline byte in the
@@ -648,4 +650,46 @@ test "create_entries parses each file independently" {
         }
     }
     try expect(!eql(u8, posts[0].slug, posts[1].slug));
+}
+
+test "code block integration highlights Zig" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "code.md",
+        .data = "---\nname: Code\nslug: code\n---\n```zig\nconst answer = 42;\n```\nAfter\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqualStrings(
+        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer = <span class=\"tok-number\">42</span>;</code></pre>\n<p>After</p>\n",
+        posts[0].content,
+    );
+}
+
+test "code block integration escapes plain code without stale languages" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "code.md",
+        .data = "---\nname: Code\n---\n```zig\nconst x = 42;\n```\n```c\n<a> & 42\n```\n```\nconst x = 42;\n```\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqualStrings(
+        "<pre class=\"code-section\"><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x = <span class=\"tok-number\">42</span>;</code></pre>\n" ++
+            "<pre class=\"code-section\"><code>&lt;a&gt; &amp; 42</code></pre>\n" ++
+            "<pre class=\"code-section\"><code>const x = 42;</code></pre>\n",
+        posts[0].content,
+    );
 }

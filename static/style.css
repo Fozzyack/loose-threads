@@ -612,12 +612,6 @@ pre code {
     tab-size: 4;
 }
 
-/* The parser currently emits each code line as a paragraph. */
-.code-section p {
-    display: inline;
-    margin: 0;
-}
-
 .code-section :is(pre, code) {
     margin: 0;
     padding: 0;
@@ -626,6 +620,14 @@ pre code {
     color: inherit;
     background: none;
     font: inherit;
+}
+
+.tok-keyword {
+    color: #c678dd;
+}
+
+.tok-number {
+    color: #d19a66;
 }
 
 /* Language accents distinguish blocks without changing code text contrast. */

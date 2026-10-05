@@ -3,14 +3,12 @@ const entries = @import("entries.zig");
 const parser = @import("parser.zig");
 const assets = @import("assets.zig");
 const template = @import("templates.zig");
-const highlight = @import("highlight.zig");
 
 const Dir = std.Io.Dir;
 
 /// Recreates `public`, copies CSS from `static`, and prints the names and rendered
 /// content of entries read from `markdown`, using the process arena for allocations.
 pub fn main(init: std.process.Init) !void {
-    try highlight.check();
     Dir.cwd().deleteTree(init.io, "public") catch |err| {
         if (err != error.FileNotFound) return err;
     };
