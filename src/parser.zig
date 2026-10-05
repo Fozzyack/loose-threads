@@ -361,7 +361,7 @@ test "parse_section preserves incomplete link syntax as plain text" {
 fn parse_code_block(parser_state: *FileParserState, code_end: usize, entry: *Entry, allocator: Allocator) !void {
     const code_block: []u8 = parser_state.read_buffer[0..code_end];
     try entry.add_content(code_block, allocator);
-    try entry.add_content("</div>", allocator);
+    try entry.add_content("\n</div>\n", allocator);
 }
 
 /// Shifts past leading newline bytes before the first non-newline byte in the
