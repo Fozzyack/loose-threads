@@ -5,7 +5,7 @@ const ts = @cImport({
 
 extern fn tree_sitter_zig() ?*const ts.TSLanguage;
 
-const ParserError = error{ OutOfMemory, ParseFailed, MissingZigGrammar, IncompatibleGrammar, InvalidHighlightQuery };
+const TreeSitterParserError = error{ OutOfMemory, ParseFailed, MissingZigGrammar, IncompatibleGrammar, InvalidHighlightQuery, OverlappingErrors, UnknownCapture };
 
 fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
     for (text) |byte| {
@@ -20,24 +20,24 @@ fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
 
 pub fn check() !void {
     const parser = ts.ts_parser_new() orelse
-        return ParserError.OutOfMemory;
+        return TreeSitterParserError.OutOfMemory;
     defer ts.ts_parser_delete(parser);
 
     const language = tree_sitter_zig() orelse
-        return ParserError.MissingZigGrammar;
+        return TreeSitterParserError.MissingZigGrammar;
 
     if (!ts.ts_parser_set_language(parser, language)) {
-        return ParserError.IncompatibleGrammar;
+        return TreeSitterParserError.IncompatibleGrammar;
     }
 
     const source = "const answer = 42;";
-    const tree = ts.ts_parser_parse_string(parser, null, source.ptr, @intCast(source.len)) orelse return ParserError.ParseFailed;
+    const tree = ts.ts_parser_parse_string(parser, null, source.ptr, @intCast(source.len)) orelse return TreeSitterParserError.ParseFailed;
     defer ts.ts_tree_delete(tree);
 
     const root = ts.ts_tree_root_node(tree);
 
     const tree_text = ts.ts_node_string(root);
-    if (tree_text == null) return ParserError.OutOfMemory;
+    if (tree_text == null) return TreeSitterParserError.OutOfMemory;
     defer ts.free(tree_text);
 
     std.debug.print("{s}\n", .{std.mem.span(tree_text)});
@@ -54,15 +54,19 @@ pub fn check() !void {
             "Invalid highlight query at byte {d}, error type {d}\n",
             .{ error_offset, error_type },
         );
-        return ParserError.InvalidHighlightQuery;
+        return TreeSitterParserError.InvalidHighlightQuery;
     };
     defer ts.ts_query_delete(query);
 
     const cursor = ts.ts_query_cursor_new() orelse
-        return ParserError.OutOfMemory;
+        return TreeSitterParserError.OutOfMemory;
     defer ts.ts_query_cursor_delete(cursor);
 
     ts.ts_query_cursor_exec(cursor, query, root);
+    var html: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
+    defer html.deinit();
+
+    var position: usize = 0;
     var match: ts.TSQueryMatch = undefined;
     var capture_index: u32 = 0;
 
@@ -75,9 +79,38 @@ pub fn check() !void {
         var name_len: u32 = 0;
         const name = ts.ts_query_capture_name_for_id(query, capture.index, &name_len);
 
-        std.debug.print(
-            "{s}: '{s}' [{d}..{d}]\n",
-            .{ name[0..name_len], source[start..end], start, end },
-        );
+        const capture_name = name[0..name_len];
+
+        // This initial query produces non-overlapping captures.
+        if (start < position) return TreeSitterParserError.OverlappingErrors;
+
+        try writeEscaped(&html.writer, source[position..start]);
+
+        const opening_tag = if (std.mem.eql(u8, capture_name, "keyword"))
+            "<span class=\"tok-keyword\">"
+        else if (std.mem.eql(u8, capture_name, "number"))
+            "<span class=\"tok-number\">"
+        else
+            return TreeSitterParserError.UnknownCapture;
+
+        try html.writer.writeAll(opening_tag);
+        try writeEscaped(&html.writer, source[start..end]);
+        try html.writer.writeAll("</span>");
+        position = end;
     }
+
+    try writeEscaped(&html.writer, source[position..]);
+    std.debug.print("{s}\n", .{html.written()});
+}
+
+test "writeEscaped preserves whitespace and escapes HTML characters" {
+    var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer html.deinit();
+
+    try writeEscaped(&html.writer, "\tif (a < b && b > 0) {\n}\n");
+    try std.testing.expectEqualStrings("\tif (a &lt; b &amp;&amp; b &gt; 0) {\n}\n", html.written());
+}
+
+test "check renders keyword and number captures" {
+    try check();
 }
