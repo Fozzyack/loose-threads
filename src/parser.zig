@@ -139,8 +139,6 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
                 defer allocator.free(tag);
                 try entry.add_content(tag, allocator);
             }
-        } else {
-            try entry.add_content("\n</div>\n", allocator);
         }
         parser_state.current_code_section = !parser_state.current_code_section;
         return;
