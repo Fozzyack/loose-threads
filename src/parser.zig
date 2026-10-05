@@ -11,6 +11,28 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 
+const FileParserState = struct {
+    read_buffer: [8192]u8 = undefined,
+    used: usize = 0,
+    offset: usize = 0,
+    has_parsed_metadata: bool = false,
+
+    pub fn strip_newline(self: *FileParserState) void {
+        if (self.read_buffer.len == 0) return;
+        var newline_count: usize = 0;
+        for (self.read_buffer[0..self.used]) |character| {
+            if (character == '\n') newline_count += 1 else break;
+        }
+        @memmove(self.read_buffer[0 .. self.used - newline_count], self.read_buffer[newline_count..self.used]);
+        self.used -= newline_count;
+    }
+
+    pub fn strip_section(self: *FileParserState, newline_idx: usize) void {
+        @memmove(self.read_buffer[0 .. self.used - (newline_idx + 1)], self.read_buffer[newline_idx + 1 .. self.used]);
+        self.used -= newline_idx + 1;
+    }
+};
+
 /// Appends a section as an HTML heading or paragraph followed by a newline.
 /// Recognizes one to five leading `#` characters followed by a space and skips
 /// empty sections. Text is copied without HTML escaping; a section consisting
