@@ -54,11 +54,11 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
     if (section.len == 0) return;
     if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
         if (!parser_state.current_code_section) {
-            const tag = try std.fmt.allocPrint(allocator, "<div class=\"code-section\">", .{});
+            const tag = try std.fmt.allocPrint(allocator, "\n<div class=\"code-section\">\n", .{});
             defer allocator.free(tag);
             try entry.add_content(tag, allocator);
         } else {
-            try entry.add_content("</div>", allocator);
+            try entry.add_content("\n</div>\n", allocator);
         }
         parser_state.current_code_section = !parser_state.current_code_section;
         return;
@@ -67,7 +67,7 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
     var header_count: usize = 0;
     var is_header = false;
     var is_list = false;
-    while (count < section.len and section[count] == '#') : (count += 1) {
+    while (count < section.len and section[count] == '#' and !parser_state.current_code_section) : (count += 1) {
         if (count >= 5) break;
     }
     if (count >= section.len) return error.InvalidLine;
