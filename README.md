@@ -30,7 +30,9 @@ date: 2026-10-01
 Welcome to my blog.
 ```
 
-Metadata is project-specific, not full YAML. Dates are optional; an optional `timestamp` (Unix seconds, UTC) takes precedence. Posts are listed newest first. Markdown support is currently basic headings and paragraphs.
+Metadata is project-specific, not full YAML. Dates are optional; an optional `timestamp` (Unix seconds, UTC) takes precedence. Posts are listed newest first. Markdown support is basic, including fenced code blocks styled with `.code-section`.
+
+Planned: build-time syntax highlighting using Tree-sitter, with language-specific grammars and CSS token colors.
 
 ## Tests
 
