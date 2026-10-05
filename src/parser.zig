@@ -24,6 +24,7 @@ const FileParserState = struct {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
         if (bytes_read == 0) {
             if (self.has_parsed_metadata == false) return error.FailedToParseMetadata;
+            if (self.in_code_block == true ) return error.EndOfCodeBlockNotFound;
             return null;
         }
         self.offset += bytes_read;
@@ -596,7 +597,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     parser_state.strip_newlines();
                     parser_state.has_parsed_metadata = true;
                 } else if (parser_state.in_code_block) {
-                    const code_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n```") orelse return error.CouldNotFindEndOfCodeBlock;
+                    const code_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n```") orelse break;
                     try parse_code_block(&parser_state, code_end, &new_entry, allocator);
                     parser_state.strip_section(code_end + 3);
                     parser_state.strip_newlines();
