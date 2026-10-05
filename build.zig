@@ -12,6 +12,25 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    exe.root_module.link_libc = true;
+    exe.root_module.addIncludePath(
+        b.path("vendor/tree-sitter/lib/include"),
+    );
+    exe.root_module.addIncludePath(
+        b.path("vendor/tree-sitter/lib/src"),
+    );
+    exe.root_module.addIncludePath(
+        b.path("vendor/tree-sitter-zig/src"),
+    );
+
+    exe.root_module.addCSourceFiles(.{
+        .files = &.{
+            "vendor/tree-sitter/lib/src/lib.c",
+            "vendor/tree-sitter-zig/src/parser.c",
+        },
+        .flags = &.{"-std=gnu17"},
+    });
+
     b.installArtifact(exe);
 
     const format_html = b.addSystemCommand(&.{ "prettier", "--ignore-path", ".prettierignore", "--write", "public/**/*.html" });
