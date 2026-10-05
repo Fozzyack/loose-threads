@@ -1,4 +1,1 @@
-*.html linguist-vendored
-*.css linguist-vendored
 *.md linguist-vendored
-*.js linguist-vendored
