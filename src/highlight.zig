@@ -43,10 +43,7 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
 
     const root = ts.ts_tree_root_node(tree);
 
-    const query_source =
-        \\"const" @keyword
-        \\(integer) @number
-    ;
+    const query_source = @embedFile("queries/zig.scm");
     var error_offset: u32 = 0;
     var error_type: ts.TSQueryError = ts.TSQueryErrorNone;
 
@@ -79,7 +76,7 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
 
         const capture_name = name[0..name_len];
 
-        // This initial query produces non-overlapping captures.
+        // The query deliberately avoids overlapping captures.
         if (start < position) return TreeSitterParserError.OverlappingErrors;
 
         try writeEscaped(writer, source[position..start]);
@@ -88,6 +85,18 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
             "<span class=\"tok-keyword\">"
         else if (std.mem.eql(u8, capture_name, "number"))
             "<span class=\"tok-number\">"
+        else if (std.mem.eql(u8, capture_name, "string"))
+            "<span class=\"tok-string\">"
+        else if (std.mem.eql(u8, capture_name, "comment"))
+            "<span class=\"tok-comment\">"
+        else if (std.mem.eql(u8, capture_name, "constant"))
+            "<span class=\"tok-constant\">"
+        else if (std.mem.eql(u8, capture_name, "type"))
+            "<span class=\"tok-type\">"
+        else if (std.mem.eql(u8, capture_name, "builtin"))
+            "<span class=\"tok-builtin\">"
+        else if (std.mem.eql(u8, capture_name, "function"))
+            "<span class=\"tok-function\">"
         else
             return TreeSitterParserError.UnknownCapture;
 
@@ -131,4 +140,55 @@ test "render escapes uncaptured Zig source and handles empty source" {
     try std.testing.expectEqualStrings("", html.written());
     try render("a < b && b > c", "zig", &html.writer);
     try std.testing.expectEqualStrings("a &lt; b &amp;&amp; b &gt; c", html.written());
+}
+
+test "render highlights additional Zig tokens" {
+    const cases = [_]struct { source: []const u8, html: []const u8 }{
+        .{
+            .source = "pub fn greet() void { return; }",
+            .html = "<span class=\"tok-keyword\">pub</span> <span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">greet</span>() <span class=\"tok-type\">void</span> { <span class=\"tok-keyword\">return</span>; }",
+        },
+        .{
+            .source = "var enabled: bool = true;",
+            .html = "<span class=\"tok-keyword\">var</span> enabled: <span class=\"tok-type\">bool</span> = <span class=\"tok-constant\">true</span>;",
+        },
+        .{
+            .source = "const value: f64 = 3.14;",
+            .html = "<span class=\"tok-keyword\">const</span> value: <span class=\"tok-type\">f64</span> = <span class=\"tok-number\">3.14</span>;",
+        },
+        .{
+            .source = "const text = \"const 42 < & >\\n\"; // return 123 < & >\n",
+            .html = "<span class=\"tok-keyword\">const</span> text = <span class=\"tok-string\">\"const 42 &lt; &amp; &gt;\\n\"</span>; <span class=\"tok-comment\">// return 123 &lt; &amp; &gt;</span>\n",
+        },
+        .{
+            .source = "const letter = '<';",
+            .html = "<span class=\"tok-keyword\">const</span> letter = <span class=\"tok-string\">'&lt;'</span>;",
+        },
+        .{
+            .source = "const text =\n    \\\\const 42 < & >\n;",
+            .html = "<span class=\"tok-keyword\">const</span> text =\n    <span class=\"tok-string\">\\\\const 42 &lt; &amp; &gt;</span>\n;",
+        },
+        .{
+            .source = "const size = @sizeOf(u32);",
+            .html = "<span class=\"tok-keyword\">const</span> size = <span class=\"tok-builtin\">@sizeOf</span>(<span class=\"tok-type\">u32</span>);",
+        },
+        .{
+            .source = "const missing = null; var value: u8 = undefined;",
+            .html = "<span class=\"tok-keyword\">const</span> missing = <span class=\"tok-constant\">null</span>; <span class=\"tok-keyword\">var</span> value: <span class=\"tok-type\">u8</span> = <span class=\"tok-constant\">undefined</span>;",
+        },
+        .{
+            .source = "fn run() void { greet(); object.call(); }",
+            .html = "<span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">run</span>() <span class=\"tok-type\">void</span> { <span class=\"tok-function\">greet</span>(); object.<span class=\"tok-function\">call</span>(); }",
+        },
+        .{
+            .source = "fn run() void { if (false) unreachable; }",
+            .html = "<span class=\"tok-keyword\">fn</span> <span class=\"tok-function\">run</span>() <span class=\"tok-type\">void</span> { <span class=\"tok-keyword\">if</span> (<span class=\"tok-constant\">false</span>) <span class=\"tok-constant\">unreachable</span>; }",
+        },
+    };
+    for (cases) |case| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(case.source, "zig", &html.writer);
+        try std.testing.expectEqualStrings(case.html, html.written());
+    }
 }

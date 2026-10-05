@@ -630,6 +630,31 @@ pre code {
     color: #d19a66;
 }
 
+.tok-string {
+    color: #98c379;
+}
+
+.tok-comment {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.tok-constant {
+    color: #d19a66;
+}
+
+.tok-type {
+    color: #e8cf82;
+}
+
+.tok-builtin {
+    color: #56b6c2;
+}
+
+.tok-function {
+    color: var(--accent);
+}
+
 /* Language accents distinguish blocks without changing code text contrast. */
 .code-section.language-c {
     --code-accent: #9db9e8;
