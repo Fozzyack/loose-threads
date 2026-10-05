@@ -628,6 +628,27 @@ pre code {
     font: inherit;
 }
 
+/* Language accents distinguish blocks without changing code text contrast. */
+.code-section.language-c {
+    --code-accent: #9db9e8;
+    --code-tint: rgba(157, 185, 232, 0.04);
+}
+
+.code-section.language-python {
+    --code-accent: #e8cf82;
+    --code-tint: rgba(232, 207, 130, 0.04);
+}
+
+.code-section.language-zig {
+    --code-accent: #eba66c;
+    --code-tint: rgba(235, 166, 108, 0.04);
+}
+
+.code-section:is(.language-c, .language-python, .language-zig) {
+    border-left: 3px solid var(--code-accent);
+    background: linear-gradient(var(--code-tint), var(--code-tint)), var(--surface);
+}
+
 .article-page figure {
     margin-inline: 0;
 }
