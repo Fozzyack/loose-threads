@@ -2,7 +2,7 @@
 
 > Why write a blog post when you can spend three weeks building the thing that renders it?
 
-A personal programming blog and a single-threaded static-site generator built in **Zig 0.16.0**, with vendored Tree-sitter for Zig syntax highlighting.
+A personal programming blog and a single-threaded static-site generator built in **Zig 0.17.0**, with vendored Tree-sitter for Zig syntax highlighting.
 
 Posts live in `markdown/`, templates in `templates/`, and assets in `static/`. Generated HTML goes to `public/` for deployment to Cloudflare Pages.
 
@@ -10,10 +10,13 @@ Posts live in `markdown/`, templates in `templates/`, and assets in `static/`. G
 
 ```sh
 zig build
+zig build test
 ./zig-out/bin/blog-generator
 ```
 
 Run from the repository root. Generation **deletes and recreates `public/`**.
+
+The build fetches the pinned official `translate-c` package (from its Zig 0.17-compatible branch) to generate Zig bindings from Tree-sitter's C header. Tree-sitter and the Zig grammar remain vendored and are compiled as C; `src/highlight.zig` imports the generated `tree_sitter` module instead of using the removed `@cImport` builtin.
 
 Optional: `zig build format-html` formats existing output (requires Prettier).
 
