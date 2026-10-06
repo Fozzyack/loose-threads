@@ -1,6 +1,7 @@
 //! Renders homepage post lists and individual post pages from HTML templates.
 //! Plain-text metadata is HTML-escaped; rendered post content is inserted verbatim.
 const std = @import("std");
+const log = @import("log.zig");
 const entries = @import("entries.zig");
 const Io = std.Io;
 
@@ -258,6 +259,7 @@ test "homepage sorting handles empty lists, ties, and invalid metadata" {
 pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_dir: Dir, io: Io, allocator: Allocator) !void {
     const home_page = try read_html("index.html", templates_dir, io, allocator);
     defer allocator.free(home_page);
+    try log.print("creating ... index.html\n", .{});
 
     var output: Io.Writer.Allocating = .init(allocator);
     defer output.deinit();
@@ -400,6 +402,7 @@ fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io
 
     const filename = try std.fmt.allocPrint(allocator, "{s}.html", .{post.slug});
     defer allocator.free(filename);
+    try log.print("creating ... {s}\n", .{filename});
     var file = try public_dir.createFile(io, filename, .{ .exclusive = true, .read = true });
     defer file.close(io);
 

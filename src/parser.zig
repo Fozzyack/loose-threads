@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = @import("log.zig");
 const Entry = @import("entries.zig").Entry;
 const highlight = @import("highlight.zig");
 const Io = std.Io;
@@ -717,6 +718,8 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         if (!mem.endsWith(u8, entry.basename, ".md")) continue;
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
+
+        try log.print("parsing ... {s}\n", .{entry.path});
 
         var parser_state: FileParserState = .{ .file = file };
 
