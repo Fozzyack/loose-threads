@@ -33,3 +33,10 @@ pub fn main(init: std.process.Init) !void {
     try template.create_homepage(posts, templates_dir, public_dir, init.io, init.arena.allocator());
     try template.create_posts(posts, templates_dir, public_dir, init.io, init.arena.allocator());
 }
+
+test {
+    _ = entries;
+    _ = parser;
+    _ = assets;
+    _ = template;
+}
