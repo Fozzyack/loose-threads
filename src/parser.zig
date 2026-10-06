@@ -30,7 +30,7 @@ const FileParserState = struct {
         if (bytes_read == 0) {
             if (self.has_parsed_metadata == false) return error.FailedToParseMetadata;
             if (self.in_code_block == true) {
-                try self.deinit(allocator);
+                self.deinit(allocator);
                 return error.EndOfCodeBlockNotFound;
             }
             return null;
@@ -293,13 +293,31 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
     try entry.add_content("\n", allocator);
 }
 
+// Set up the buffered state expected by the parser while keeping test cases concise.
+fn test_parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
+    var state: FileParserState = .{ .file = undefined };
+    defer state.deinit(allocator);
+    @memcpy(state.read_buffer[0..section.len], section);
+    state.used = section.len;
+    try parse_section(&state, section.len, entry, allocator);
+}
+
+fn test_parse_metadata(metadata: []const u8, entry: *Entry, allocator: Allocator) !void {
+    var state: FileParserState = .{ .file = undefined };
+    defer state.deinit(allocator);
+    @memcpy(state.read_buffer[0..4], "---\n");
+    @memcpy(state.read_buffer[4 .. 4 + metadata.len], metadata);
+    state.used = 4 + metadata.len;
+    try parse_metadata(&state, state.used - 1, entry, allocator);
+}
+
 test "parse_section with header" {
     const test_allocator: std.mem.Allocator = std.testing.allocator;
     var entry: Entry = .{};
     try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     const section: []const u8 = "# Test header";
-    try parse_section(section, &entry, test_allocator);
+    try test_parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<h1>Test header</h1>\n", entry.content));
 }
 
@@ -309,7 +327,7 @@ test "parse_section with header 2" {
     try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     const section: []const u8 = "## Test header";
-    try parse_section(section, &entry, test_allocator);
+    try test_parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<h2>Test header</h2>\n", entry.content));
 }
 
@@ -319,7 +337,7 @@ test "parse_section paragraph" {
     try entry.add_name("test entry", test_allocator);
     defer entry.deinit(test_allocator);
     const section: []const u8 = "some # test entry!";
-    try parse_section(section, &entry, test_allocator);
+    try test_parse_section(section, &entry, test_allocator);
     try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
 }
 
@@ -340,7 +358,7 @@ test "parse_section renders inline bold and italic with both delimiters" {
     for (cases) |case| {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
-        try parse_section(case.section, &entry, allocator);
+        try test_parse_section(case.section, &entry, allocator);
         try std.testing.expectEqualStrings(case.html, entry.content);
     }
 }
@@ -356,7 +374,7 @@ test "parse_section preserves unmatched and empty emphasis markers" {
         defer entry.deinit(allocator);
         const html = try std.fmt.allocPrint(allocator, "<p>{s}</p>\n", .{section});
         defer allocator.free(html);
-        try parse_section(section, &entry, allocator);
+        try test_parse_section(section, &entry, allocator);
         try std.testing.expectEqualStrings(html, entry.content);
     }
 }
@@ -372,7 +390,7 @@ test "parse_section keeps extra closing markers inside italic text" {
     for (cases) |case| {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
-        try parse_section(case.section, &entry, allocator);
+        try test_parse_section(case.section, &entry, allocator);
         try std.testing.expectEqualStrings(case.html, entry.content);
     }
 }
@@ -388,7 +406,7 @@ test "parse_section renders italic inside bold" {
     for (sections) |section| {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
-        try parse_section(section, &entry, allocator);
+        try test_parse_section(section, &entry, allocator);
         try std.testing.expectEqualStrings("<p><span class=\"bold\">what <span class=\"italic\">test</span> what</span></p>\n", entry.content);
     }
 }
@@ -398,7 +416,7 @@ test "parse_section renders a link" {
     var entry: Entry = .{ .name = &.{} };
     defer entry.deinit(allocator);
 
-    try parse_section("[Example](https://example.com)", &entry, allocator);
+    try test_parse_section("[Example](https://example.com)", &entry, allocator);
 
     try std.testing.expectEqualStrings("<p>\n<a href=\"https://example.com\">Example</a>\n</p>\n", entry.content);
 }
@@ -422,7 +440,7 @@ test "parse_section preserves text around links in paragraphs and headings" {
     for (cases) |case| {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
-        try parse_section(case.section, &entry, allocator);
+        try test_parse_section(case.section, &entry, allocator);
         try std.testing.expectEqualStrings(case.html, entry.content);
     }
 }
@@ -439,7 +457,7 @@ test "parse_section renders supported image extensions with alt text" {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
 
-        try parse_section(section, &entry, allocator);
+        try test_parse_section(section, &entry, allocator);
         try std.testing.expectEqualStrings(html, entry.content);
     }
 }
@@ -459,7 +477,7 @@ test "parse_section preserves incomplete link syntax as plain text" {
         const html = try std.fmt.allocPrint(allocator, "<p>{s}</p>\n", .{section});
         defer allocator.free(html);
 
-        try parse_section(section, &entry, allocator);
+        try test_parse_section(section, &entry, allocator);
         try std.testing.expectEqualStrings(html, entry.content);
     }
 }
@@ -558,7 +576,7 @@ test "parse_metadata trims values and accepts reordered keys" {
     defer entry.deinit(test_allocator);
     const metadata = "slug :  my-post  \ndescription:  A post with spaces  \nname:  My blog post  \n";
 
-    try parse_metadata(metadata, &entry, test_allocator);
+    try test_parse_metadata(metadata, &entry, test_allocator);
 
     try expect(eql(u8, "My blog post", entry.name));
     try expect(eql(u8, "A post with spaces", entry.description));
@@ -570,9 +588,9 @@ test "parse_metadata rejects unknown keys and missing delimiters" {
     var entry: Entry = .{ .name = &.{} };
     defer entry.deinit(test_allocator);
 
-    try std.testing.expectError(error.InvalidMetadataFlagFound, parse_metadata("author: Someone\n", &entry, test_allocator));
-    try std.testing.expectError(error.ErrorParsingMetadata, parse_metadata("name without a colon\n", &entry, test_allocator));
-    try std.testing.expectError(error.ErrorParsingMetadata, parse_metadata("name: Missing newline", &entry, test_allocator));
+    try std.testing.expectError(error.InvalidMetadataFlagFound, test_parse_metadata("author: Someone\n", &entry, test_allocator));
+    try std.testing.expectError(error.ErrorParsingMetadata, test_parse_metadata("name without a colon\n", &entry, test_allocator));
+    try std.testing.expectError(error.ErrorParsingMetadata, test_parse_metadata("name: Missing newline", &entry, test_allocator));
 }
 
 test "parse_metadata stores date and generates post-date content before the body" {
@@ -581,8 +599,8 @@ test "parse_metadata stores date and generates post-date content before the body
     defer entry.deinit(test_allocator);
     const metadata = "name: Hello World\ndescription: My first post\nslug: hello-world\ndate :  2026-10-01  \n";
 
-    try parse_metadata(metadata, &entry, test_allocator);
-    try parse_section("Welcome to my blog.", &entry, test_allocator);
+    try test_parse_metadata(metadata, &entry, test_allocator);
+    try test_parse_section("Welcome to my blog.", &entry, test_allocator);
 
     try expect(eql(u8, "2026-10-01", entry.date));
     try expect(eql(u8, "<p class=\"post-date\">October 1, 2026</p>\n<p>Welcome to my blog.</p>\n", entry.content));
@@ -605,12 +623,12 @@ test "parse_metadata validates date format and leap years" {
         "date: 1900-02-29\n",
     };
     for (invalid_dates) |metadata| {
-        try std.testing.expectError(error.InvalidMetadataDate, parse_metadata(metadata, &entry, test_allocator));
+        try std.testing.expectError(error.InvalidMetadataDate, test_parse_metadata(metadata, &entry, test_allocator));
         try expect(entry.date.len == 0);
         try expect(entry.content.len == 0);
     }
 
-    try parse_metadata("date: 2000-02-29\n", &entry, test_allocator);
+    try test_parse_metadata("date: 2000-02-29\n", &entry, test_allocator);
     try expect(eql(u8, "2000-02-29", entry.date));
     try expect(eql(u8, "<p class=\"post-date\">February 29, 2000</p>\n", entry.content));
 }
@@ -621,8 +639,8 @@ test "parse_metadata stores Unix timestamp and displays UTC before the body" {
     defer entry.deinit(test_allocator);
     const metadata = "name: Hello World\ndescription: My first post\nslug: hello-world\ndate: 2026-10-01\ntimestamp :  1790858096  \n";
 
-    try parse_metadata(metadata, &entry, test_allocator);
-    try parse_section("Welcome to my blog.", &entry, test_allocator);
+    try test_parse_metadata(metadata, &entry, test_allocator);
+    try test_parse_section("Welcome to my blog.", &entry, test_allocator);
 
     try std.testing.expectEqual(@as(?u64, 1790858096), entry.timestamp);
     try expect(eql(u8, "2026-10-01", entry.date));
@@ -638,7 +656,7 @@ test "parse_metadata renders one paragraph regardless of date and timestamp orde
     for (metadata_orders) |metadata| {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(test_allocator);
-        try parse_metadata(metadata, &entry, test_allocator);
+        try test_parse_metadata(metadata, &entry, test_allocator);
 
         try expect(eql(u8, "2026-10-02", entry.date));
         try std.testing.expectEqual(@as(?u64, 1790858096), entry.timestamp);
@@ -658,7 +676,7 @@ test "parse_metadata converts timestamp boundaries and leap day to UTC" {
     for (cases) |case| {
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(test_allocator);
-        try parse_metadata(case.metadata, &entry, test_allocator);
+        try test_parse_metadata(case.metadata, &entry, test_allocator);
         try std.testing.expectEqual(@as(?u64, case.timestamp), entry.timestamp);
         try expect(eql(u8, case.content, entry.content));
     }
@@ -678,7 +696,7 @@ test "parse_metadata rejects invalid Unix timestamps" {
         "timestamp: 18446744073709551616\n",
     };
     for (invalid_timestamps) |metadata| {
-        try std.testing.expectError(error.InvalidMetadataTimestamp, parse_metadata(metadata, &entry, test_allocator));
+        try std.testing.expectError(error.InvalidMetadataTimestamp, test_parse_metadata(metadata, &entry, test_allocator));
         try expect(entry.timestamp == null);
         try expect(entry.content.len == 0);
     }
@@ -793,7 +811,7 @@ test "code block integration highlights Zig" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre></div>\n<p>After</p>\n",
+        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre>\n<code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;\n</code></pre></div>\n<p>After</p>\n",
         posts[0].content,
     );
 }
@@ -813,9 +831,9 @@ test "code block integration escapes plain code without stale languages" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre><code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;</code></pre></div>\n" ++
-            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-c.svg\" alt=\"\" width=\"20\" height=\"20\"><span>C</span></div><pre><code>&lt;a&gt; &amp; 42</code></pre></div>\n" ++
-            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Code</span></div><pre><code>const x = 42;</code></pre></div>\n",
+        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre>\n<code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;\n</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-c.svg\" alt=\"\" width=\"20\" height=\"20\"><span>C</span></div><pre>\n<code>&lt;a&gt; &amp; 42\n</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Code</span></div><pre>\n<code>const x = 42;\n</code></pre></div>\n",
         posts[0].content,
     );
 }
@@ -829,14 +847,16 @@ test "code block integration shows Python and safely labels unknown languages" {
     };
     for (cases) |case| {
         var state: FileParserState = .{ .file = undefined };
+        defer state.deinit(allocator);
         try state.change_language(case.language);
         @memcpy(state.read_buffer[0..5], "hello");
+        try state.add_code_text(5, allocator);
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
-        try parse_code_block(&state, 5, &entry, allocator);
+        try parse_code_block(&state, &entry, allocator);
         const expected = try std.fmt.allocPrint(
             allocator,
-            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre><code>hello</code></pre></div>\n",
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre>\n<code>hello</code></pre></div>\n",
             .{ case.icon, case.label },
         );
         defer allocator.free(expected);
