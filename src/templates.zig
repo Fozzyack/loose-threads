@@ -275,7 +275,6 @@ pub fn create_homepage(posts: []const entries.Entry, templates_dir: Dir, public_
     defer file.close(io);
 
     try file.writePositionalAll(io, output.written(), 0);
-    std.debug.print("Created Index ... \n", .{});
 }
 
 test "create_homepage" {
@@ -405,7 +404,6 @@ fn create_post_page(post: entries.Entry, templates_dir: Dir, public_dir: Dir, io
     defer file.close(io);
 
     try file.writePositionalAll(io, output, 0);
-    std.debug.print("Created Post {s} ... \n", .{filename});
 }
 
 test "create_post_page" {
