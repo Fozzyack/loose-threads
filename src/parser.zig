@@ -17,20 +17,37 @@ const FileParserState = struct {
     read_buffer: [8192]u8 = undefined,
     used: usize = 0,
     offset: usize = 0,
+
     has_parsed_metadata: bool = false,
+
     in_code_block: bool = false,
     code_language: [16]u8 = undefined,
     code_language_len: usize = 0,
+    code_block_text: []u8 = &.{},
 
-    pub fn read_section(self: *FileParserState, io: Io) !?void {
+    pub fn read_section(self: *FileParserState, io: Io, allocator: Allocator) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
         if (bytes_read == 0) {
             if (self.has_parsed_metadata == false) return error.FailedToParseMetadata;
-            if (self.in_code_block == true) return error.EndOfCodeBlockNotFound;
+            if (self.in_code_block == true) {
+                try self.deinit_code_text(allocator);
+                return error.EndOfCodeBlockNotFound;
+            }
             return null;
         }
         self.offset += bytes_read;
         self.used += bytes_read;
+    }
+
+    pub fn add_code_text(self: *FileParserState, idx: usize, allocator: Allocator) !void {
+        const prev_len: usize = self.code_block_text.len;
+        self.code_block_text = try allocator.realloc(self.code_block_text, prev_len + idx);
+        @memcpy(self.code_block_text[prev_len..], self.read_buffer[0..idx]);
+    }
+
+    pub fn deinit_code_text(self: *FileParserState, allocator: Allocator) !void {
+        allocator.free(self.code_block_text);
+        self.code_block_text = &.{};
     }
 
     pub fn change_language(self: *FileParserState, language: []const u8) !void {
@@ -352,7 +369,7 @@ test "parse_section preserves incomplete link syntax as plain text" {
 }
 
 // Parse Code block
-fn parse_code_block(parser_state: *FileParserState, code_end: usize, entry: *Entry, allocator: Allocator) !void {
+fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
     var html: Io.Writer.Allocating = .init(allocator);
     defer html.deinit();
     const language = parser_state.code_language[0..parser_state.code_language_len];
@@ -364,10 +381,10 @@ fn parse_code_block(parser_state: *FileParserState, code_end: usize, entry: *Ent
     try html.writer.writeAll("</span></div>");
     // Only known language names are included in HTML attributes.
     try html.writer.writeAll(if (eql(u8, language, "zig"))
-        "<pre><code class=\"language-zig\">"
+        "<pre>\n<code class=\"language-zig\">"
     else
-        "<pre><code>");
-    try highlight.render(parser_state.read_buffer[0..code_end], language, &html.writer);
+        "<pre>\n<code>");
+    try highlight.render(parser_state.code_block_text, language, &html.writer);
     try html.writer.writeAll("</code></pre></div>\n");
     try entry.add_content(html.written(), allocator);
 }
@@ -592,7 +609,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         var new_entry: Entry = .{};
 
         while (true) {
-            try parser_state.read_section(io) orelse break;
+            try parser_state.read_section(io, allocator) orelse break;
             parser_state.strip_newlines();
 
             while (true) {
@@ -605,11 +622,18 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     parser_state.strip_newlines();
                     parser_state.has_parsed_metadata = true;
                 } else if (parser_state.in_code_block) {
-                    const code_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n```") orelse break;
-                    try parse_code_block(&parser_state, code_end, &new_entry, allocator);
-                    parser_state.strip_section(code_end + 3);
-                    parser_state.strip_newlines();
-                    parser_state.in_code_block = false;
+                    const _code_end: ?usize = mem.find(u8, parser_state.read_buffer[0..3], "```");
+                    if (_code_end) |code_end| {
+                        try parse_code_block(&parser_state, &new_entry, allocator);
+                        parser_state.strip_section(code_end + 3);
+                        parser_state.strip_newlines();
+                        try parser_state.deinit_code_text(allocator);
+                        parser_state.in_code_block = false;
+                    } else {
+                        const newline_idx: usize = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
+                        try parser_state.add_code_text(newline_idx + 1, allocator);
+                        parser_state.strip_section(newline_idx);
+                    }
                 } else {
                     const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
                     try parse_section(&parser_state, newline_idx, &new_entry, allocator);
