@@ -30,7 +30,7 @@ const FileParserState = struct {
         if (bytes_read == 0) {
             if (self.has_parsed_metadata == false) return error.FailedToParseMetadata;
             if (self.in_code_block == true) {
-                try self.deinit_code_text(allocator);
+                try self.deinit(allocator);
                 return error.EndOfCodeBlockNotFound;
             }
             return null;
@@ -72,6 +72,10 @@ const FileParserState = struct {
     pub fn strip_section(self: *FileParserState, idx: usize) void {
         @memmove(self.read_buffer[0 .. self.used - (idx + 1)], self.read_buffer[(idx + 1)..self.used]);
         self.used -= (idx + 1);
+    }
+
+    pub fn deinit(self: *FileParserState, allocator: Allocator) void {
+        allocator.free(self.code_block_text);
     }
 };
 /// Renders inline content, recursively parsing the text inside emphasis spans.
