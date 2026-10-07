@@ -573,11 +573,12 @@ main {
     color: var(--body-text);
     background: var(--surface);
     border-radius: 0 4px 4px 0;
+    line-height: 1.4;
     overflow-wrap: anywhere;
 }
 
 .article-page :is(.quote-block-none, .quote-block-note, .quote-block-important)>p+p {
-    margin-top: 0.75rem;
+    margin-top: 0;
 }
 
 .article-page .quote-block-none {
