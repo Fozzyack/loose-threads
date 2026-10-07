@@ -66,9 +66,15 @@ const FileParserState = struct {
 
     pub fn add_quote_text(self: *FileParserState, text: []const u8, allocator: Allocator) !void {
         const prev_len: usize = self.block_quote_text.len;
-        self.block_quote_text = try allocator.realloc(self.block_quote_text, prev_len + text.len + 1);
-        @memcpy(self.block_quote_text[prev_len .. prev_len + text.len], text);
-        self.block_quote_text[prev_len + text.len] = '\n';
+
+        var output: Io.Writer.Allocating = .init(allocator);
+        defer output.deinit();
+        try output.writer.writeAll("<p>");
+        try highlight.render(text, "", &output.writer);
+        try output.writer.writeAll("</p>\n");
+
+        self.block_quote_text = try allocator.realloc(self.block_quote_text, prev_len + output.written().len);
+        @memcpy(self.block_quote_text[prev_len..], output.written());
     }
 
     pub fn deinit_block_text(self: *FileParserState, allocator: Allocator) void {
@@ -531,7 +537,7 @@ fn parse_quote_block(parser_state: *FileParserState, entry: *Entry, allocator: A
     const _quote_type = parser_state.block_quote_type;
     const quote_type = if (_quote_type == BlockQuoteType.NOTE) "note" else if (_quote_type == BlockQuoteType.IMPORTANT) "important" else "none";
     try html.writer.print("<div class=\"quote-block-{s}\">\n", .{quote_type});
-    try highlight.render(parser_state.block_quote_text, "", &html.writer);
+    try html.writer.writeAll(parser_state.block_quote_text);
     try html.writer.writeAll("</div>\n");
 
     try entry.add_content(html.written(), allocator);
