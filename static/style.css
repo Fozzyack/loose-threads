@@ -564,6 +564,49 @@ main {
     margin-top: 1rem;
 }
 
+/* Shared styling for ordinary quotes and alert callouts. */
+.article-page :is(.quote-block-none, .quote-block-note, .quote-block-important) {
+    --quote-accent: var(--accent);
+    max-width: 100%;
+    padding: 0.75rem clamp(1rem, 3vw, 1.5rem);
+    border-left: 3px solid var(--quote-accent);
+    color: var(--body-text);
+    background: var(--surface);
+    border-radius: 0 4px 4px 0;
+    overflow-wrap: anywhere;
+}
+
+.article-page :is(.quote-block-none, .quote-block-note, .quote-block-important)>p+p {
+    margin-top: 0.75rem;
+}
+
+.article-page .quote-block-none {
+    color: var(--muted);
+    background: var(--accent-tint);
+}
+
+.article-page .quote-block-important {
+    --quote-accent: #e2b478;
+}
+
+.article-page :is(.quote-block-note, .quote-block-important)::before {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--quote-accent);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.article-page .quote-block-note::before {
+    content: "Note";
+}
+
+.article-page .quote-block-important::before {
+    content: "Important";
+}
+
 code,
 pre,
 kbd {
