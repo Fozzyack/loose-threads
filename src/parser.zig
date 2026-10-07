@@ -18,6 +18,36 @@ const BlockQuoteType = enum(u8) {
     NONE,
     NOTE,
     IMPORTANT,
+    DANGER,
+    HELP,
+    FAIL,
+    FAILURE,
+    TODO,
+    INFO,
+    QUOTE,
+
+    fn from_marker(text: []const u8) ?BlockQuoteType {
+        inline for (.{ .NOTE, .IMPORTANT, .DANGER, .HELP, .FAIL, .FAILURE, .TODO, .INFO, .QUOTE }) |tag| {
+            const quote_type: BlockQuoteType = tag;
+            if (eql(u8, text, "[!" ++ @tagName(quote_type) ++ "]")) return quote_type;
+        }
+        return null;
+    }
+
+    fn css_name(self: BlockQuoteType) []const u8 {
+        return switch (self) {
+            .NONE => "none",
+            .NOTE => "note",
+            .IMPORTANT => "important",
+            .DANGER => "danger",
+            .HELP => "help",
+            .FAIL => "fail",
+            .FAILURE => "failure",
+            .TODO => "todo",
+            .INFO => "info",
+            .QUOTE => "quote",
+        };
+    }
 };
 
 const Section = enum(u8) {
@@ -282,11 +312,12 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
                 parser_state.block_quote_type = .NONE;
                 const text_start: usize = @min(2, section.len);
                 const block_quote_type = std.mem.trim(u8, section[text_start..], " \t\r");
-                if (!eql(u8, block_quote_type, "[!NOTE]") and !eql(u8, block_quote_type, "[!IMPORTANT]")) {
+                if (BlockQuoteType.from_marker(block_quote_type)) |quote_type| {
+                    parser_state.block_quote_type = quote_type;
+                } else {
                     try parser_state.add_quote_text(section[text_start..], allocator);
                     break :blk;
                 }
-                parser_state.block_quote_type = if (eql(u8, block_quote_type, "[!NOTE]")) .NOTE else .IMPORTANT;
             }
         }
         parser_state.section = .QUOTE_BLOCK;
@@ -534,8 +565,7 @@ test "parse_section preserves incomplete link syntax as plain text" {
 fn parse_quote_block(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
     var html: Io.Writer.Allocating = .init(allocator);
     defer html.deinit();
-    const _quote_type = parser_state.block_quote_type;
-    const quote_type = if (_quote_type == BlockQuoteType.NOTE) "note" else if (_quote_type == BlockQuoteType.IMPORTANT) "important" else "none";
+    const quote_type = parser_state.block_quote_type.css_name();
     try html.writer.print("<div class=\"quote-block-{s}\">\n", .{quote_type});
     try html.writer.writeAll(parser_state.block_quote_text);
     try html.writer.writeAll("</div>\n");
@@ -863,13 +893,57 @@ test "create_entries preserves quote text and following paragraphs" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<div class=\"quote-block-none\">\ntest\ntest quote block\n</div>\n" ++
+        "<div class=\"quote-block-none\">\n<p>test</p>\n<p>test quote block</p>\n</div>\n" ++
             "<p>something here</p>\n" ++
-            "<div class=\"quote-block-note\">\nnote\n</div>\n<p>After</p>\n" ++
-            "<div class=\"quote-block-important\">\nimportant\n</div>\n<p>After again</p>\n" ++
-            "<div class=\"quote-block-none\">\n&lt;last&gt; &amp; quote\nfinal\n</div>\n",
+            "<div class=\"quote-block-note\">\n<p>note</p>\n</div>\n<p>After</p>\n" ++
+            "<div class=\"quote-block-important\">\n<p>important</p>\n</div>\n<p>After again</p>\n" ++
+            "<div class=\"quote-block-none\">\n<p>&lt;last&gt; &amp; quote</p>\n<p>final</p>\n</div>\n",
         posts[0].content,
     );
+}
+
+test "quote markers render their matching CSS classes" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { marker: []const u8, class: []const u8 }{
+        .{ .marker = "[!NOTE]", .class = "note" },
+        .{ .marker = "[!IMPORTANT]", .class = "important" },
+        .{ .marker = "[!DANGER]", .class = "danger" },
+        .{ .marker = "[!HELP]", .class = "help" },
+        .{ .marker = "[!FAIL]", .class = "fail" },
+        .{ .marker = "[!FAILURE]", .class = "failure" },
+        .{ .marker = "[!TODO]", .class = "todo" },
+        .{ .marker = "[!INFO]", .class = "info" },
+        .{ .marker = "[!QUOTE]", .class = "quote" },
+    };
+    for (cases) |case| {
+        var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
+        defer state.deinit(allocator);
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        const section = try std.fmt.allocPrint(allocator, "> {s}", .{case.marker});
+        defer allocator.free(section);
+        @memcpy(state.read_buffer[0..section.len], section);
+        try parse_section(&state, section.len, &entry, allocator);
+        try std.testing.expectEqual(Section.QUOTE_BLOCK, state.section);
+        try state.add_quote_text("<text> & content", allocator);
+        try parse_quote_block(&state, &entry, allocator);
+        const expected = try std.fmt.allocPrint(allocator, "<div class=\"quote-block-{s}\">\n<p>&lt;text&gt; &amp; content</p>\n</div>\n", .{case.class});
+        defer allocator.free(expected);
+        try std.testing.expectEqualStrings(expected, entry.content);
+    }
+}
+
+test "unknown quote markers remain ordinary quote text" {
+    const allocator = std.testing.allocator;
+    var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
+    defer state.deinit(allocator);
+    var entry: Entry = .{ .name = &.{} };
+    defer entry.deinit(allocator);
+    const section = "> [!UNKNOWN]";
+    @memcpy(state.read_buffer[0..section.len], section);
+    try parse_section(&state, section.len, &entry, allocator);
+    try parse_quote_block(&state, &entry, allocator);
+    try std.testing.expectEqualStrings("<div class=\"quote-block-none\">\n<p>[!UNKNOWN]</p>\n</div>\n", entry.content);
 }
 
 test "create_entries parses each file independently" {
