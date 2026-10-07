@@ -21,9 +21,13 @@ In my own time, I've been slowly moving down the tech stack. I've moved from Typ
 
 // From the zig docs
 
-const std = @import("std")
+const std = @import("std");
 
 pub fn main(init: std.process.Init) !void {
     try std.Io.File.stdout().writeStreamingAll(init.io, "Hello, World!\n");
 }
 ```
+
+> [!NOTE]
+> test
+> test quote block
