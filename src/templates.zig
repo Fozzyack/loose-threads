@@ -21,6 +21,7 @@ const POST_LIST_INSERT: []const u8 = "{{ post_list }}";
 const POST_CONTENT: []const u8 = "{{ content }}";
 const POST_NAME: []const u8 = "{{ name }}";
 const POST_DESCRIPTION: []const u8 = "{{ description }}";
+const POST_TABLE_OF_CONTENTS: []const u8 = "{{ table_of_contents }}";
 
 /// Renders a linked list item with escaped slug, name, and description.
 /// Includes the post's display date when present, preferring its UTC timestamp.
@@ -313,8 +314,8 @@ test "create_homepage" {
     try expect(first < second);
 }
 
-/// Replaces all content, name, and description markers in the supplied template.
-/// Escapes metadata but preserves rendered content; inserted values are not
+/// Replaces all content, name, description, and table-of-contents markers.
+/// Escapes metadata but preserves rendered content and TOC HTML; inserted values are not
 /// scanned for more markers. Requires `{{ content }}` or returns
 /// `CannotFindInjectionPoint`. The caller must free the HTML with `allocator`.
 fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Allocator) ![]u8 {
@@ -326,6 +327,7 @@ fn render_post_page(post_html: []const u8, post: entries.Entry, allocator: Alloc
         .{ .marker = POST_CONTENT, .value = post.content, .escape = false },
         .{ .marker = POST_NAME, .value = post.name, .escape = true },
         .{ .marker = POST_DESCRIPTION, .value = post.description, .escape = true },
+        .{ .marker = POST_TABLE_OF_CONTENTS, .value = post.table_of_contents, .escape = false },
     };
     var offset: usize = 0;
     while (offset < post_html.len) {
@@ -389,6 +391,24 @@ test "render_post_page handles repeated reordered fields without recursive repla
     defer allocator.free(html);
     try std.testing.expectEqualStrings("<p>{{ name }}</p>||{{ description }}|{{ description }}", html);
     try std.testing.expectError(error.CannotFindInjectionPoint, render_post_page("{{ name }}", .{ .name = "Post" }, allocator));
+}
+
+test "render_post_page inserts TOC HTML and omits an empty TOC" {
+    const allocator = std.testing.allocator;
+    const page = "{{ table_of_contents }}<article>{{ content }}</article>{{ table_of_contents }}";
+    const toc = "<nav class=\"table-of-contents\"><ol><li><a href=\"#header-0\">{{ name }}</a></li></ol></nav>";
+    const html = try render_post_page(page, .{
+        .name = "Post",
+        .table_of_contents = toc,
+        .content = "<h1 id=\"header-0\">Post</h1>",
+    }, allocator);
+    defer allocator.free(html);
+    const expected = toc ++ "<article><h1 id=\"header-0\">Post</h1></article>" ++ toc;
+    try std.testing.expectEqualStrings(expected, html);
+
+    const empty = try render_post_page(page, .{ .content = "<p>Body</p>" }, allocator);
+    defer allocator.free(empty);
+    try std.testing.expectEqualStrings("<article><p>Body</p></article>", empty);
 }
 
 /// Renders `page.html` from `templates_dir` into `{slug}.html` in `public_dir`.
