@@ -63,6 +63,10 @@ const FileParserState = struct {
     used: usize = 0,
     offset: usize = 0,
 
+    header_count: u8 = 0,
+    headers: [][]u8 = &.{},
+    has_toc: bool = false,
+
     section: Section = .METADATA,
 
     code_language: [16]u8 = undefined,
@@ -121,6 +125,14 @@ const FileParserState = struct {
         self.code_language_len = language.len;
     }
 
+    pub fn add_header(self: *FileParserState, header: []const u8, allocator: Allocator) !void {
+        const prev_len = self.headers.len;
+        self.headers = try allocator.realloc(self.headers, prev_len + 1);
+        self.headers[prev_len] = try allocator.alloc(u8, header.len);
+        @memcpy(self.headers[prev_len], header);
+        self.header_count += 1;
+    }
+
     pub fn strip_newlines(self: *FileParserState) void {
         if (self.read_buffer.len == 0) return;
         var newline_count: usize = 0;
@@ -139,6 +151,12 @@ const FileParserState = struct {
     pub fn deinit(self: *FileParserState, allocator: Allocator) void {
         if (self.code_block_text.len != 0) allocator.free(self.code_block_text);
         if (self.block_quote_text.len != 0) allocator.free(self.block_quote_text);
+        if (self.headers.len > 0) {
+            for (self.headers) |header| {
+                allocator.free(header);
+            }
+            allocator.free(self.headers);
+        }
     }
 };
 
@@ -234,7 +252,7 @@ test "FileParserState deinit frees code text and accepts empty text" {
 }
 
 /// Renders inline content, recursively parsing the text inside emphasis spans.
-fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allocator) !void {
+fn parse_inline(parser_state: *FileParserState, section: []const u8, is_header: bool, content_writer: *Io.Writer, allocator: Allocator) !void {
     var count: usize = 0;
     var old_count: usize = 0;
 
@@ -284,7 +302,7 @@ fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allo
                 const tag = try std.fmt.allocPrint(allocator, "<span class=\"{s}\">", .{class});
                 defer allocator.free(tag);
                 try content_writer.writeAll(tag);
-                try parse_inline(section[text_start..text_end], content_writer, allocator);
+                try parse_inline(parser_state, section[text_start..text_end], is_header, content_writer, allocator);
                 try content_writer.writeAll("</span>");
                 count = text_end + delimiter_len;
                 old_count = count;
@@ -296,6 +314,7 @@ fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: Allo
 
         count += 1;
     }
+    if (is_header) try parser_state.add_header(section[old_count..count], allocator);
     try content_writer.writeAll(section[old_count..count]);
 }
 
@@ -342,7 +361,7 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
     if (count > 0 and section[count] == ' ') {
         is_header = true;
         count += 1;
-        const header = try std.fmt.allocPrint(allocator, "<h{d}>", .{count - 1});
+        const header = try std.fmt.allocPrint(allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
         defer allocator.free(header);
         try entry.add_content(header, allocator);
     } else if (section[count] == '-' and count + 1 < section.len) {
@@ -358,7 +377,7 @@ fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Ent
 
     var content: Io.Writer.Allocating = .init(allocator);
     defer content.deinit();
-    try parse_inline(section[count..], &content.writer, allocator);
+    try parse_inline(parser_state, section[count..], is_header, &content.writer, allocator);
     try entry.add_content(content.written(), allocator);
 
     if (is_header) {
@@ -595,6 +614,17 @@ fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator: Al
     try entry.add_content(html.written(), allocator);
 }
 
+fn create_toc(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
+    var html: Io.Writer.Allocating = .init(allocator);
+    defer html.deinit();
+    try html.writer.writeAll("<div class=\"table-of-contents\"\n<h5>Table of Contents</h5>\n<ol>\n");
+    for (parser_state.headers, 0..) |header, idx| {
+        try html.writer.print("<li><a href\"#header-{d}\">{s}</a></li>\n", .{ idx, header });
+    }
+    try html.writer.writeAll("</ol>\n</div>");
+    try entry.add_toc(html.written(), allocator);
+}
+
 /// Shifts past leading newline bytes before the first non-newline byte in the
 /// used portion of `buffer` and reduces `used` by the number removed.
 /// Leaves all-newline input unchanged; `used` must not exceed `buffer.len`.
@@ -656,6 +686,9 @@ fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry: *E
         } else if (eql(u8, buffer[start..separator_idx], "timestamp") or eql(u8, buffer[start..separator_idx], "timestamp ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
             try entry.add_timestamp(value);
+        } else if (eql(u8, buffer[start..separator_idx], "toc") or eql(u8, buffer[start..separator_idx], "toc ")) {
+            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
+            if (eql(u8, value, "true")) parser_state.has_toc = true;
         } else return error.InvalidMetadataFlagFound;
         start = newline_idx + 1;
     }
@@ -872,9 +905,11 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
             try parse_quote_block(&parser_state, &new_entry, allocator);
         }
 
+        if (parser_state.has_toc) try create_toc(&parser_state, &new_entry, allocator);
         entries = try allocator.realloc(entries, entries.len + 1);
         entries[entries.len - 1] = new_entry;
     }
+
     return entries;
 }
 

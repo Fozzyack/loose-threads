@@ -11,6 +11,7 @@ pub const Entry = struct {
     name: []const u8 = undefined,
     content: []const u8 = &.{},
     description: []const u8 = &.{},
+    table_of_contents: []const u8 = &.{},
     slug: []const u8 = &.{},
     date: []const u8 = &.{},
     timestamp: ?u64 = null,
@@ -28,6 +29,13 @@ pub const Entry = struct {
         const new_content = try mem.concat(allocator, u8, strs);
         if (self.content.len > 0) allocator.free(self.content);
         self.content = new_content;
+    }
+
+    pub fn add_toc(self: *Entry, content: []const u8, allocator: Allocator) !void {
+        const strs: []const []const u8 = &[_][]const u8{ self.table_of_contents, content };
+        const new_content = try mem.concat(allocator, u8, strs);
+        if (self.table_of_contents.len > 0) allocator.free(self.table_of_contents);
+        self.table_of_contents = new_content;
     }
 
     pub fn add_description(self: *Entry, description: []const u8, allocator: Allocator) !void {
@@ -136,6 +144,7 @@ pub const Entry = struct {
         allocator.free(self.description);
         allocator.free(self.slug);
         allocator.free(self.date);
+        allocator.free(self.table_of_contents);
     }
 };
 
