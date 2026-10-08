@@ -1,0 +1,115 @@
+/* Shared styling for ordinary quotes and alert callouts. */
+.article-page :is(.quote-block-none, .quote-block-note, .quote-block-important,
+    .quote-block-danger, .quote-block-help, .quote-block-fail,
+    .quote-block-failure, .quote-block-todo, .quote-block-info, .quote-block-quote) {
+    --quote-accent: var(--accent);
+    max-width: 100%;
+    padding: 0.75rem clamp(1rem, 3vw, 1.5rem);
+    border-left: 3px solid var(--quote-accent);
+    color: var(--body-text);
+    background: var(--surface);
+    border-radius: 0 4px 4px 0;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.article-page :is(.quote-block-none, .quote-block-note, .quote-block-important,
+    .quote-block-danger, .quote-block-help, .quote-block-fail,
+    .quote-block-failure, .quote-block-todo, .quote-block-info, .quote-block-quote)>p+p {
+    margin-top: 0;
+}
+
+.article-page .quote-block-none {
+    color: var(--muted);
+    background: var(--accent-tint);
+}
+
+.article-page .quote-block-important {
+    --quote-accent: #e2b478;
+}
+
+.article-page .quote-block-danger {
+    --quote-accent: #ff9090;
+    background: rgba(255, 144, 144, 0.07);
+    font-weight: 600;
+}
+
+.article-page :is(.quote-block-fail, .quote-block-failure) {
+    --quote-accent: #e6a0b3;
+    background: rgba(230, 160, 179, 0.05);
+    border-left-style: dashed;
+    font-weight: 500;
+}
+
+.article-page .quote-block-help {
+    --quote-accent: #91d5b6;
+    background: rgba(145, 213, 182, 0.05);
+}
+
+.article-page .quote-block-todo {
+    --quote-accent: #c4b0f0;
+    background: rgba(196, 176, 240, 0.05);
+    font-weight: 500;
+}
+
+.article-page .quote-block-info {
+    --quote-accent: #8ecfe0;
+    background: rgba(142, 207, 224, 0.05);
+}
+
+.article-page .quote-block-quote {
+    --quote-accent: var(--muted);
+    color: var(--muted);
+    background: var(--accent-tint);
+    font-style: italic;
+}
+
+.article-page :is(.quote-block-note, .quote-block-important,
+    .quote-block-danger, .quote-block-help, .quote-block-fail,
+    .quote-block-failure, .quote-block-todo, .quote-block-info, .quote-block-quote)::before {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--quote-accent);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-style: normal;
+    letter-spacing: 0.04em;
+}
+
+.article-page .quote-block-note::before {
+    content: "Note";
+}
+
+.article-page .quote-block-important::before {
+    content: "Important";
+}
+
+.article-page .quote-block-danger::before {
+    content: "Danger";
+    font-weight: 700;
+}
+
+.article-page .quote-block-help::before {
+    content: "Help";
+}
+
+.article-page .quote-block-fail::before {
+    content: "Fail";
+}
+
+.article-page .quote-block-failure::before {
+    content: "Failure";
+}
+
+.article-page .quote-block-todo::before {
+    content: "Todo";
+}
+
+.article-page .quote-block-info::before {
+    content: "Info";
+}
+
+.article-page .quote-block-quote::before {
+    content: "Quote";
+}

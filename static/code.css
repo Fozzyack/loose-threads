@@ -1,0 +1,151 @@
+code,
+pre,
+kbd {
+    font-family: var(--mono);
+    font-size: 0.875em;
+}
+
+code,
+kbd {
+    padding: 0.15em 0.4em;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--accent);
+    background: var(--surface);
+}
+
+pre {
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    line-height: 1.65;
+    overflow-wrap: normal;
+}
+
+pre code {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: inherit;
+}
+
+/* Language-neutral snippets extracted from Markdown. */
+.code-section {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--body-text);
+    background: var(--surface);
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    line-height: 1.65;
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+    tab-size: 4;
+}
+
+.code-section :is(pre, code) {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    color: inherit;
+    background: none;
+    font: inherit;
+}
+
+.code-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.8125rem;
+}
+
+.code-language-icon {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.code-section pre {
+    padding: 1.25rem;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.tok-keyword {
+    color: #c678dd;
+}
+
+.tok-number {
+    color: #d19a66;
+}
+
+.tok-string {
+    color: #98c379;
+}
+
+.tok-comment {
+    color: var(--muted);
+    font-style: italic;
+}
+
+.tok-constant {
+    color: #d19a66;
+}
+
+.tok-type {
+    color: #e8cf82;
+}
+
+.tok-builtin {
+    color: #56b6c2;
+}
+
+.tok-function {
+    color: var(--accent);
+}
+
+.tok-operator {
+    color: #56b6c2;
+}
+
+.tok-bracket {
+    color: var(--text);
+}
+
+.tok-field {
+    color: #eba66c;
+}
+
+/* Language accents distinguish blocks without changing code text contrast. */
+.code-section.language-c {
+    --code-accent: #9db9e8;
+    --code-tint: rgba(157, 185, 232, 0.04);
+}
+
+.code-section.language-python {
+    --code-accent: #e8cf82;
+    --code-tint: rgba(232, 207, 130, 0.04);
+}
+
+.code-section.language-zig {
+    --code-accent: #eba66c;
+    --code-tint: rgba(235, 166, 108, 0.04);
+}
+
+.code-section:is(.language-c, .language-python, .language-zig) {
+    border-left: 3px solid var(--code-accent);
+    background: linear-gradient(var(--code-tint), var(--code-tint)), var(--surface);
+}

@@ -6,6 +6,20 @@ A personal programming blog and a single-threaded static-site generator built in
 
 Posts live in `markdown/`, templates in `templates/`, and assets in `static/`. Generated HTML goes to `public/` for deployment to Cloudflare Pages.
 
+### Styles
+
+`static/style.css` is the stylesheet entry point. It imports these plain CSS modules in order:
+
+- `base.css`: theme variables, resets, and global typography.
+- `layout.css`: shared page layout, header, navigation, and footer.
+- `home.css`: homepage intro, post timeline, and about section.
+- `article.css`: article typography, table of contents, and content elements.
+- `callouts.css`: quotes and alert callouts.
+- `code.css`: inline code, fenced code blocks, and syntax highlighting.
+- `responsive.css`: mobile and reduced-motion overrides.
+
+Edit the source files in `static/`, not generated files in `public/`. Keep the responsive imports last and CSS filenames unique: the asset copier copies files into `public/` using their basenames.
+
 ## Build and run
 
 ```sh

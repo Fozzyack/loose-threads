@@ -1,0 +1,167 @@
+/* A narrower measure keeps long-form posts comfortable to read. */
+.article-page {
+    max-width: 44rem;
+    padding-block: 3rem 5rem;
+}
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    margin-bottom: 2.5rem;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    text-decoration: none;
+}
+
+.back-link span,
+.site-footer>a span {
+    color: var(--accent);
+}
+
+.article-page article {
+    font-size: 1.0625rem;
+    line-height: 1.85;
+}
+
+.table-of-contents {
+    min-width: 0;
+    margin-bottom: 2rem;
+    padding-left: 1rem;
+    border-left: 2px solid var(--accent);
+}
+
+.article-page .table-of-contents h2 {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+}
+
+.table-of-contents ol {
+    margin-block: 0.5rem 0;
+}
+
+.article-page .table-of-contents li+li {
+    margin-top: 0;
+}
+
+.table-of-contents a {
+    display: block;
+    padding-block: 0.125rem;
+    color: var(--accent);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+}
+
+.table-of-contents a:hover {
+    color: var(--text);
+    text-decoration: underline;
+}
+
+.article-page article>*+* {
+    margin-top: 1.5rem;
+}
+
+.article-page h1 {
+    margin-bottom: 2rem;
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.15;
+    letter-spacing: -0.04em;
+}
+
+.article-page :is(h2, h3, h4, h5, h6) {
+    margin-top: 2.75rem;
+}
+
+.article-page h2 {
+    font-size: 1.5rem;
+}
+
+.article-page h3 {
+    font-size: 1.1875rem;
+}
+
+.article-page .post-date {
+    margin-block: 0 0.75rem;
+}
+
+.article-page article a {
+    color: var(--accent);
+}
+
+.article-page article a:hover {
+    color: var(--text);
+}
+
+.article-page :is(ul, ol) {
+    padding-left: 1.5rem;
+}
+
+.article-page li+li {
+    margin-top: 0.5rem;
+}
+
+.article-page li::marker {
+    color: var(--muted);
+}
+
+.article-page blockquote {
+    margin-inline: 0;
+    padding-left: 1.5rem;
+    border-left: 2px solid var(--accent);
+    color: var(--muted);
+}
+
+.article-page blockquote>*+* {
+    margin-top: 1rem;
+}
+
+
+.article-page figure {
+    margin-inline: 0;
+}
+
+.article-page figcaption {
+    margin-top: 0.75rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+}
+
+.article-page table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+
+.article-page :is(th, td) {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+}
+
+.article-page th {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.italic {
+    font-style: italic;
+}
+
+.bold {
+    font-weight: 700;
+}
+
+hr {
+    margin-block: 2.5rem;
+    border: 0;
+    border-top: 1px solid var(--border);
+}
