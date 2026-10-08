@@ -4,7 +4,8 @@ const highlight = @import("../highlight.zig");
 const FileParserState = @import("state.zig").FileParserState;
 const BlockQuoteType = @import("state.zig").BlockQuoteType;
 const Section = @import("state.zig").Section;
-const parse_paragraph = @import("paragraph.zig").parse_paragraph;
+const ListType = @import("state.zig").ListType;
+const flush = @import("flush.zig");
 const parse_inline = @import("inline.zig").parse_inline;
 const Io = std.Io;
 const mem = std.mem;
@@ -12,23 +13,55 @@ const eql = mem.eql;
 const Allocator = mem.Allocator;
 const expect = std.testing.expect;
 
-/// Appends a section as an HTML heading or paragraph followed by a newline.
-/// Recognizes one to five leading `#` characters followed by a space and skips
-/// empty sections. Text is copied without HTML escaping; a section consisting
-/// only of recognized heading markers returns `error.InvalidLine`.
+/// Renders a block line, buffering ordinary text until its paragraph ends.
 pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
-    var section: []u8 = parser_state.read_buffer[0..section_end];
+    const section = mem.trimEnd(u8, parser_state.read_buffer[0..section_end], "\r");
     if (section.len == 0) return;
+    var list_type: ListType = .none;
+    var text_start: usize = 0;
+    if (section.len >= 2 and section[0] == '-' and section[1] == ' ') {
+        list_type = .unordered;
+        text_start = 2;
+    } else {
+        var digits: usize = 0;
+        while (digits < section.len and std.ascii.isDigit(section[digits])) : (digits += 1) {}
+        if (digits > 0 and digits + 1 < section.len and section[digits] == '.' and section[digits + 1] == ' ') {
+            list_type = .ordered;
+            text_start = digits + 2;
+        }
+    }
+    if (list_type != .none) {
+        try flush.flush_paragraph(parser_state, entry, allocator);
+        if (parser_state.list_type != list_type) {
+            try flush.close_list(parser_state, entry, allocator);
+            try entry.add_content(if (list_type == .unordered) "<ul>\n" else "<ol>\n", allocator);
+            parser_state.list_type = list_type;
+        }
+        var item: Io.Writer.Allocating = .init(allocator);
+        defer item.deinit();
+        try item.writer.writeAll("<li>");
+        try parse_inline(section[text_start..], &item.writer, allocator);
+        try item.writer.writeAll("</li>\n");
+        try entry.add_content(item.written(), allocator);
+        return;
+    }
+    try flush.close_list(parser_state, entry, allocator);
+    if (eql(u8, section, "---")) {
+        try flush.flush_blocks(parser_state, entry, allocator);
+        try entry.add_content("<hr>\n", allocator);
+        return;
+    }
     if (section[0] == '>' and (section.len == 1 or section[1] == ' ')) {
+        try flush.flush_blocks(parser_state, entry, allocator);
         blk: {
             if (parser_state.section != .QUOTE_BLOCK) {
                 parser_state.block_quote_type = .NONE;
-                const text_start: usize = @min(2, section.len);
-                const block_quote_type = std.mem.trim(u8, section[text_start..], " \t\r");
+                const quote_start: usize = @min(2, section.len);
+                const block_quote_type = std.mem.trim(u8, section[quote_start..], " \t\r");
                 if (BlockQuoteType.from_marker(block_quote_type)) |quote_type| {
                     parser_state.block_quote_type = quote_type;
                 } else {
-                    try parser_state.add_quote_text(section[text_start..], allocator);
+                    try parser_state.add_quote_text(section[quote_start..], allocator);
                     break :blk;
                 }
             }
@@ -37,6 +70,7 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         return;
     }
     if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
+        try flush.flush_blocks(parser_state, entry, allocator);
         if (parser_state.section != .QUOTE_BLOCK) {
             const language = std.mem.trim(u8, section[3..], " \t\r");
             try parser_state.change_language(language);
@@ -47,7 +81,6 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
     var count: usize = 0;
     var header_count: usize = 0;
     var is_header = false;
-    var is_list = false;
     while (count < section.len and section[count] == '#' and parser_state.section != .METADATA) : (count += 1) {
         if (count >= 5) break;
     }
@@ -55,30 +88,30 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
     if (count > 0 and section[count] == ' ') {
         is_header = true;
         count += 1;
-        if (parser_state.paragraph.len != 0) try parse_paragraph(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry, allocator);
         const header = try std.fmt.allocPrint(allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
         defer allocator.free(header);
         try entry.add_content(header, allocator);
-    } else if (section[count] == '-' and count + 1 < section.len) {
-        is_list = true;
-        try entry.add_content("<li>", allocator);
-        count += 1;
-    } else if (parser_state.paragraph.len == 0) try parser_state.add_paragraph("<p>\n", allocator);
-    
+    } else {
+        count = 0;
+        try parser_state.add_paragraph(if (parser_state.paragraph.len == 0) "<p>" else "\n", allocator);
+    }
     header_count = count;
 
     var content: Io.Writer.Allocating = .init(allocator);
     defer content.deinit();
     try parse_inline(section[count..], &content.writer, allocator);
     if (is_header) try parser_state.add_header(section[count..], allocator);
+    if (!is_header) {
+        try parser_state.add_paragraph(content.written(), allocator);
+        return;
+    }
     try entry.add_content(content.written(), allocator);
 
     if (is_header) {
         const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
         defer allocator.free(close_tag);
         try entry.add_content(close_tag, allocator);
-    } else if (is_list) {
-        try entry.add_content("</li>", allocator);
     }
     try entry.add_content("\n", allocator);
 }
@@ -123,6 +156,7 @@ fn test_parse_section(section: []const u8, entry: *Entry, allocator: Allocator) 
     @memcpy(state.read_buffer[0..section.len], section);
     state.used = section.len;
     try parse_section(&state, section.len, entry, allocator);
+    try flush.flush_blocks(&state, entry, allocator);
 }
 
 test "parse_section with header" {
@@ -166,7 +200,7 @@ test "parse_section renders inline bold and italic with both delimiters" {
         .{ .section = "*one* **two** _three_ __four__", .html = "<p><span class=\"italic\">one</span> <span class=\"bold\">two</span> <span class=\"italic\">three</span> <span class=\"bold\">four</span></p>\n" },
         .{ .section = "**bold***italic*", .html = "<p><span class=\"bold\">bold</span><span class=\"italic\">italic</span></p>\n" },
         .{ .section = "## A **bold** heading", .html = "<h2 id=\"header-0\">A <span class=\"bold\">bold</span> heading</h2>\n" },
-        .{ .section = "- An _italic_ item", .html = "<li> An <span class=\"italic\">italic</span> item</li>\n" },
+        .{ .section = "- An _italic_ item", .html = "<ul>\n<li>An <span class=\"italic\">italic</span> item</li>\n</ul>\n" },
         .{ .section = "*See* [Example](https://example.com) **today**.", .html = "<p><span class=\"italic\">See</span> \n<a href=\"https://example.com\">Example</a>\n <span class=\"bold\">today</span>.</p>\n" },
     };
     for (cases) |case| {
@@ -226,7 +260,7 @@ test "quote markers render their matching CSS classes" {
         try std.testing.expectEqual(Section.QUOTE_BLOCK, state.section);
         try state.add_quote_text("<text> & content", allocator);
         try parse_quote_block(&state, &entry, allocator);
-        const expected = try std.fmt.allocPrint(allocator, "<div class=\"quote-block-{s}\">\n<p>&lt;text&gt; &amp; content</p>\n</div>\n", .{case.class});
+        const expected = try std.fmt.allocPrint(allocator, "<div class=\"quote-block quote-block-{s}\">\n<p>&lt;text&gt; &amp; content</p>\n</div>\n", .{case.class});
         defer allocator.free(expected);
         try std.testing.expectEqualStrings(expected, entry.content);
     }
@@ -242,7 +276,7 @@ test "unknown quote markers remain ordinary quote text" {
     @memcpy(state.read_buffer[0..section.len], section);
     try parse_section(&state, section.len, &entry, allocator);
     try parse_quote_block(&state, &entry, allocator);
-    try std.testing.expectEqualStrings("<div class=\"quote-block-none\">\n<p>[!UNKNOWN]</p>\n</div>\n", entry.content);
+    try std.testing.expectEqualStrings("<div class=\"quote-block quote-block-none\">\n<p>[!UNKNOWN]</p>\n</div>\n", entry.content);
 }
 
 test "parse_code_block shows Python and safely labels unknown languages" {

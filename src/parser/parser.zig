@@ -4,7 +4,7 @@ const Entry = @import("../entries.zig").Entry;
 const FileParserState = @import("state.zig").FileParserState;
 const blocks = @import("blocks.zig");
 const parse_metadata = @import("metadata.zig").parse_metadata;
-const parse_paragraph = @import("paragraph.zig").parse_paragraph;
+const flush_blocks = @import("flush.zig").flush_blocks;
 const create_toc = @import("toc.zig").create_toc;
 const Io = std.Io;
 const Dir = Io.Dir;
@@ -79,11 +79,19 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                 } else {
                     const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
                     try blocks.parse_section(&parser_state, newline_idx, &new_entry, allocator);
-                    if (newline_idx + 1 < parser_state.used and parser_state.read_buffer[newline_idx + 1] == '\n') try parse_paragraph(&parser_state, &new_entry, allocator);
+                    if (newline_idx + 1 < parser_state.used and parser_state.read_buffer[newline_idx + 1] == '\n') {
+                        try flush_blocks(&parser_state, &new_entry, allocator);
+                    }
                     parser_state.strip_section(newline_idx);
                     parser_state.strip_newlines();
                 }
             }
+        }
+
+        if (parser_state.section == .NORMAL_MODE and parser_state.used > 0) {
+            try blocks.parse_section(&parser_state, parser_state.used, &new_entry, allocator);
+            parser_state.used = 0;
+            if (parser_state.section == .CODE_BLOCK) return error.EndOfCodeBlockNotFound;
         }
 
         if (parser_state.section == .QUOTE_BLOCK) {
@@ -94,7 +102,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
             try blocks.parse_quote_block(&parser_state, &new_entry, allocator);
         }
 
-        try parse_paragraph(&parser_state, &new_entry, allocator);
+        try flush_blocks(&parser_state, &new_entry, allocator);
 
         if (parser_state.has_toc) try create_toc(&parser_state, &new_entry, allocator);
         entries = try allocator.realloc(entries, entries.len + 1);
@@ -102,6 +110,55 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
     }
 
     return entries;
+}
+
+test "create_entries separates lists from paragraphs and other blocks" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { markdown: []const u8, html: []const u8 }{
+        .{
+            .markdown = "Before\ncontinued.\n- First\n- **Second**\nAfter\ncontinued.\n",
+            .html = "<p>Before\ncontinued.</p>\n<ul>\n<li>First</li>\n<li><span class=\"bold\">Second</span></li>\n</ul>\n<p>After\ncontinued.</p>\n",
+        },
+        .{
+            .markdown = "1. First\n2. Second\nParagraph.",
+            .html = "<ol>\n<li>First</li>\n<li>Second</li>\n</ol>\n<p>Paragraph.</p>\n",
+        },
+        .{
+            .markdown = "- Unordered\n1. Ordered\n- Unordered again",
+            .html = "<ul>\n<li>Unordered</li>\n</ul>\n<ol>\n<li>Ordered</li>\n</ol>\n<ul>\n<li>Unordered again</li>\n</ul>\n",
+        },
+        .{
+            .markdown = "- First\n\n- Separate list\n",
+            .html = "<ul>\n<li>First</li>\n</ul>\n<ul>\n<li>Separate list</li>\n</ul>\n",
+        },
+        .{
+            .markdown = "- Item\n## Heading\nBody\n---\n-not a list\n1.not a list\n",
+            .html = "<ul>\n<li>Item</li>\n</ul>\n<h2 id=\"header-0\">Heading</h2>\n<p>Body</p>\n<hr>\n<p>-not a list\n1.not a list</p>\n",
+        },
+        .{
+            .markdown = "Before\n- Item\n> Quote\nAfter\n```text\ncode\n```\n- Last\n",
+            .html = "<p>Before</p>\n<ul>\n<li>Item</li>\n</ul>\n<div class=\"quote-block quote-block-none\">\n<p>Quote</p>\n</div>\n<p>After</p>\n<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>text</span></div><pre>\n<code>code\n</code></pre></div>\n<ul>\n<li>Last</li>\n</ul>\n",
+        },
+        .{
+            .markdown = "- Item\n```\ncode\n```\n> Final quote",
+            .html = "<ul>\n<li>Item</li>\n</ul>\n<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Code</span></div><pre>\n<code>code\n</code></pre></div>\n<div class=\"quote-block quote-block-none\">\n<p>Final quote</p>\n</div>\n",
+        },
+    };
+    for (cases) |case| {
+        var markdown = std.testing.tmpDir(.{ .iterate = true });
+        defer markdown.cleanup();
+        const source = try std.fmt.allocPrint(allocator, "---\nname: List test\nslug: list-test\n---\n\n{s}", .{case.markdown});
+        defer allocator.free(source);
+        try markdown.dir.writeFile(io, .{ .sub_path = "test.md", .data = source });
+        const posts = try create_entries(markdown.dir, io, allocator);
+        defer {
+            for (posts) |*post| post.deinit(allocator);
+            allocator.free(posts);
+        }
+        try std.testing.expectEqual(@as(usize, 1), posts.len);
+        try std.testing.expectEqualStrings(case.html, posts[0].content);
+    }
 }
 
 test "create_entries records complete formatted headings once with matching TOC anchors" {
@@ -192,11 +249,11 @@ test "create_entries preserves quote text and following paragraphs" {
         allocator.free(posts);
     }
     try std.testing.expectEqualStrings(
-        "<div class=\"quote-block-none\">\n<p>test</p>\n<p>test quote block</p>\n</div>\n" ++
+        "<div class=\"quote-block quote-block-none\">\n<p>test</p>\n<p>test quote block</p>\n</div>\n" ++
             "<p>something here</p>\n" ++
-            "<div class=\"quote-block-note\">\n<p>note</p>\n</div>\n<p>After</p>\n" ++
-            "<div class=\"quote-block-important\">\n<p>important</p>\n</div>\n<p>After again</p>\n" ++
-            "<div class=\"quote-block-none\">\n<p>&lt;last&gt; &amp; quote</p>\n<p>final</p>\n</div>\n",
+            "<div class=\"quote-block quote-block-note\">\n<p>note</p>\n</div>\n<p>After</p>\n" ++
+            "<div class=\"quote-block quote-block-important\">\n<p>important</p>\n</div>\n<p>After again</p>\n" ++
+            "<div class=\"quote-block quote-block-none\">\n<p>&lt;last&gt; &amp; quote</p>\n<p>final</p>\n</div>\n",
         posts[0].content,
     );
 }
