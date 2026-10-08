@@ -87,7 +87,7 @@ pub fn parse_quote_block(parser_state: *FileParserState, entry: *Entry, allocato
     var html: Io.Writer.Allocating = .init(allocator);
     defer html.deinit();
     const quote_type = parser_state.block_quote_type.css_name();
-    try html.writer.print("<div class=\"quote-block-{s}\">\n", .{quote_type});
+    try html.writer.print("<div class=\"quote-block quote-block-{s}\">\n", .{quote_type});
     try html.writer.writeAll(parser_state.block_quote_text);
     try html.writer.writeAll("</div>\n");
 

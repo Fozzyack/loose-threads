@@ -1,10 +1,9 @@
 /* Shared styling for ordinary quotes and alert callouts. */
-.article-page :is(.quote-block-none, .quote-block-note, .quote-block-important,
-    .quote-block-danger, .quote-block-help, .quote-block-fail,
-    .quote-block-failure, .quote-block-todo, .quote-block-info, .quote-block-quote) {
+.article-page .quote-block {
     --quote-accent: var(--accent);
     max-width: 100%;
     padding: 0.75rem clamp(1rem, 3vw, 1.5rem);
+    margin-bottom: 1.5rem;
     border-left: 3px solid var(--quote-accent);
     color: var(--body-text);
     background: var(--surface);
@@ -13,9 +12,7 @@
     overflow-wrap: anywhere;
 }
 
-.article-page :is(.quote-block-none, .quote-block-note, .quote-block-important,
-    .quote-block-danger, .quote-block-help, .quote-block-fail,
-    .quote-block-failure, .quote-block-todo, .quote-block-info, .quote-block-quote)>p+p {
+.article-page .quote-block>p+p {
     margin-top: 0;
 }
 
@@ -64,9 +61,7 @@
     font-style: italic;
 }
 
-.article-page :is(.quote-block-note, .quote-block-important,
-    .quote-block-danger, .quote-block-help, .quote-block-fail,
-    .quote-block-failure, .quote-block-todo, .quote-block-info, .quote-block-quote)::before {
+.article-page .quote-block::before {
     display: block;
     margin-bottom: 0.25rem;
     color: var(--quote-accent);
