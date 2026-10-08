@@ -25,8 +25,24 @@
 (call function: (attribute attribute: (identifier) @function))
 (decorator (identifier) @function)
 (decorator (attribute attribute: (identifier) @function))
-; Do not also capture every attribute: that would duplicate method captures.
+; Earlier function patterns win exact-range ties over ordinary attributes.
+(attribute attribute: (identifier) @field)
 (keyword_argument name: (identifier) @field)
+
+(parameters (identifier) @parameter)
+(lambda_parameters (identifier) @parameter)
+(default_parameter name: (identifier) @parameter)
+(typed_default_parameter name: (identifier) @parameter)
+(typed_parameter (identifier) @parameter)
+(parameters
+  [(list_splat_pattern (identifier) @parameter)
+   (dictionary_splat_pattern (identifier) @parameter)])
+(lambda_parameters
+  [(list_splat_pattern (identifier) @parameter)
+   (dictionary_splat_pattern (identifier) @parameter)])
+(typed_parameter
+  [(list_splat_pattern (identifier) @parameter)
+   (dictionary_splat_pattern (identifier) @parameter)])
 
 [
   "+" "-" "*" "**" "/" "//" "%" "@" "&" "|" "^" "~" "<<" ">>"

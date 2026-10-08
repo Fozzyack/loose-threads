@@ -117,6 +117,10 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
             "<span class=\"tok-builtin\">"
         else if (std.mem.eql(u8, capture_name, "function"))
             "<span class=\"tok-function\">"
+        else if (std.mem.eql(u8, capture_name, "variable"))
+            "<span class=\"tok-variable\">"
+        else if (std.mem.eql(u8, capture_name, "parameter"))
+            "<span class=\"tok-parameter\">"
         else if (std.mem.eql(u8, capture_name, "operator"))
             "<span class=\"tok-operator\">"
         else if (std.mem.eql(u8, capture_name, "bracket"))
@@ -265,13 +269,123 @@ test "render shell aliases identically and accepts empty source for every langua
     }
 }
 
-test "render escapes uncaptured Zig source and handles empty source" {
+test "render escapes Zig comparisons and handles empty source" {
     var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer html.deinit();
     try render("", "zig", &html.writer);
     try std.testing.expectEqualStrings("", html.written());
-    try render("a < b && b > c", "zig", &html.writer);
-    try std.testing.expectEqualStrings("a &lt; b &amp;&amp; b &gt; c", html.written());
+    const source = "const result = a < b and b > c;\n";
+    try render(source, "zig", &html.writer);
+    try std.testing.expect(std.mem.find(u8, html.written(), "a <span class=\"tok-operator\">&lt;</span> b") != null);
+    try expectSourcePreserved(source, html.written());
+}
+
+test "render highlights Python parameters and prioritizes methods over attributes" {
+    const source = "@obj.decorate\ndef run(plain, typed: int, default=1, both: str=\"<&>\", *args: int, **kwargs: str):\n\tobj.inner.method(key=obj.field)\n\treturn lambda item, fallback=2, *rest, **options: item\n";
+    var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer html.deinit();
+    try render(source, "python", &html.writer);
+    for ([_][]const u8{ "plain", "typed", "default", "both", "args", "kwargs", "item", "fallback", "rest", "options" }) |name| {
+        const fragment = try std.fmt.allocPrint(std.testing.allocator, "<span class=\"tok-parameter\">{s}</span>", .{name});
+        defer std.testing.allocator.free(fragment);
+        try std.testing.expect(std.mem.find(u8, html.written(), fragment) != null);
+    }
+    for ([_][]const u8{
+        "obj.<span class=\"tok-function\">decorate</span>",
+        "obj.<span class=\"tok-field\">inner</span>.<span class=\"tok-function\">method</span>",
+        "obj.<span class=\"tok-field\">field</span>",
+        "<span class=\"tok-type\">int</span>",
+        "<span class=\"tok-string\">\"&lt;&amp;&gt;\"</span>",
+    }) |fragment| try std.testing.expect(std.mem.find(u8, html.written(), fragment) != null);
+    try std.testing.expect(std.mem.find(u8, html.written(), "tok-field\">method") == null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, html.written(), "<span class=\"tok-function\">method</span>"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, html.written(), "<span class=\"tok-function\">decorate</span>"));
+    try std.testing.expect(std.mem.find(u8, html.written(), "tok-parameter\">obj") == null);
+    try expectSourcePreserved(source, html.written());
+}
+
+test "render highlights C function pointers and direct pointer and array parameters" {
+    const source = "int (*callback)(int value, const char *text);\nint (**indirect)(int count);\nint (*handlers[2])(int index);\nvoid run(int direct, char **argv, int items[3], int (*visit)(int element)) { obj.field; callback(direct, \"<&>\"); }\n";
+    var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer html.deinit();
+    try render(source, "c", &html.writer);
+    for ([_][]const u8{ "callback", "indirect", "handlers", "run", "visit" }) |name| {
+        const fragment = try std.fmt.allocPrint(std.testing.allocator, "<span class=\"tok-function\">{s}</span>", .{name});
+        defer std.testing.allocator.free(fragment);
+        try std.testing.expect(std.mem.find(u8, html.written(), fragment) != null);
+    }
+    for ([_][]const u8{ "value", "text", "count", "index", "direct", "argv", "items", "element" }) |name| {
+        const fragment = try std.fmt.allocPrint(std.testing.allocator, "<span class=\"tok-parameter\">{s}</span>", .{name});
+        defer std.testing.allocator.free(fragment);
+        try std.testing.expect(std.mem.find(u8, html.written(), fragment) != null);
+    }
+    try std.testing.expect(std.mem.find(u8, html.written(), "<span class=\"tok-field\">field</span>") != null);
+    try std.testing.expect(std.mem.find(u8, html.written(), "<span class=\"tok-type\">int</span>") != null);
+    try expectSourcePreserved(source, html.written());
+}
+
+test "render highlights shell assignments and unquoted expansions but keeps strings whole" {
+    const source = "value=42\n\techo $value ${value:-fallback} $? \"$value ${value} <&>\"\n";
+    for ([_][]const u8{ "sh", "bash" }) |language| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(source, language, &html.writer);
+        try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, html.written(), "<span class=\"tok-variable\">value</span>"));
+        try std.testing.expect(std.mem.find(u8, html.written(), "<span class=\"tok-constant\">?</span>") != null);
+        try std.testing.expect(std.mem.find(u8, html.written(), "<span class=\"tok-string\">\"$value ${value} &lt;&amp;&gt;\"</span>") != null);
+        try expectSourcePreserved(source, html.written());
+    }
+}
+
+test "render highlights grammar supported Zig operators without duplicate captures" {
+    const operators = [_][]const u8{ "%", "==", "!=", "<", "<=", ">", ">=", "&", "|", "^", "<<", ">>", "+%", "-%", "*%", "+|", "-|", "*|", "<<|", "++", "**", "||" };
+    for (operators) |operator| {
+        const source = try std.fmt.allocPrint(std.testing.allocator, "const result = a {s} b;\n", .{operator});
+        defer std.testing.allocator.free(source);
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(source, "zig", &html.writer);
+        var escaped: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer escaped.deinit();
+        try writeEscaped(&escaped.writer, operator);
+        const fragment = try std.fmt.allocPrint(std.testing.allocator, "<span class=\"tok-operator\">{s}</span>", .{escaped.written()});
+        defer std.testing.allocator.free(fragment);
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, html.written(), fragment));
+        try expectSourcePreserved(source, html.written());
+    }
+    for ([_][]const u8{ "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "+%=", "-%=", "*%=", "+|=", "-|=", "*|=", "<<|=" }) |operator| {
+        const source = try std.fmt.allocPrint(std.testing.allocator, "fn run() void {{ a {s} b; }}\n", .{operator});
+        defer std.testing.allocator.free(source);
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(source, "zig", &html.writer);
+        var escaped: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer escaped.deinit();
+        try writeEscaped(&escaped.writer, operator);
+        const fragment = try std.fmt.allocPrint(std.testing.allocator, "<span class=\"tok-operator\">{s}</span>", .{escaped.written()});
+        defer std.testing.allocator.free(fragment);
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, html.written(), fragment));
+        try expectSourcePreserved(source, html.written());
+    }
+}
+
+test "render highlights Zig unary pointer range and switch operators" {
+    const cases = [_]struct { source: []const u8, operators: []const []const u8 }{
+        .{ .source = "const value = !flag; const bits = ~mask; const ptr = &value;", .operators = &.{ "!", "~", "&amp;" } },
+        .{ .source = "const value = ptr.*; const unwrapped = optional.?; var maybe: ?u8 = null;", .operators = &.{ ".*", ".?", "?" } },
+        .{ .source = "const slice = values[0..2]; const result = switch (value) { 0...2 => 1, else => 0 };", .operators = &.{ "..", "...", "=&gt;" } },
+    };
+    for (cases) |case| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(case.source, "zig", &html.writer);
+        for (case.operators) |operator| {
+            const fragment = try std.fmt.allocPrint(std.testing.allocator, "<span class=\"tok-operator\">{s}</span>", .{operator});
+            defer std.testing.allocator.free(fragment);
+            try std.testing.expect(std.mem.find(u8, html.written(), fragment) != null);
+        }
+        try expectSourcePreserved(case.source, html.written());
+    }
 }
 
 test "render highlights additional Zig tokens" {

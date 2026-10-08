@@ -34,6 +34,18 @@
 
 (function_declarator declarator: (identifier) @function)
 (function_declarator declarator: (parenthesized_declarator (identifier) @function))
+(function_declarator declarator: (parenthesized_declarator
+  (pointer_declarator declarator: (identifier) @function)))
+(function_declarator declarator: (parenthesized_declarator
+  (pointer_declarator declarator: (pointer_declarator declarator: (identifier) @function))))
+(function_declarator declarator: (parenthesized_declarator
+  (pointer_declarator declarator: (array_declarator declarator: (identifier) @function))))
+
+(parameter_declaration declarator: (identifier) @parameter)
+(parameter_declaration declarator: (pointer_declarator declarator: (identifier) @parameter))
+(parameter_declaration declarator: (pointer_declarator
+  declarator: (pointer_declarator declarator: (identifier) @parameter)))
+(parameter_declaration declarator: (array_declarator declarator: (identifier) @parameter))
 (call_expression function: (identifier) @function)
 (field_identifier) @field
 (enumerator name: (identifier) @constant)

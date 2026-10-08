@@ -13,6 +13,7 @@
 [(string) (raw_string) (ansi_c_string)] @string
 [(heredoc_start) (heredoc_body) (heredoc_end)] @string
 (special_variable_name) @constant
+(variable_name) @variable
 
 (function_definition name: (word) @function)
 (command_name (word) @function)

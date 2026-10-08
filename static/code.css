@@ -129,6 +129,14 @@ pre code {
     color: #eba66c;
 }
 
+.tok-variable {
+    color: var(--text);
+}
+
+.tok-parameter {
+    color: #9db9e8;
+}
+
 /* Language accents distinguish blocks without changing code text contrast. */
 .code-section.language-c {
     --code-accent: #9db9e8;
