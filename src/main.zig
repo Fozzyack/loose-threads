@@ -20,6 +20,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const public_dir = try reset_public(init.io);
+    defer public_dir.close(init.io);
     try generate_site(public_dir, init.io, init.arena.allocator());
 
     if (format_file) try format_public(init.io);
