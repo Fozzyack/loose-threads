@@ -36,8 +36,8 @@
     }
 
     .table-of-contents a {
-        min-height: 2rem;
-        padding-block: 0.3rem;
+        min-height: 2.75rem;
+        padding-block: 0.625rem;
     }
 
     .back-link {

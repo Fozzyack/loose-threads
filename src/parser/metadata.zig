@@ -61,6 +61,7 @@ fn test_append_body(entry: *Entry, allocator: Allocator) !void {
     defer state.deinit(allocator);
     @memcpy(state.read_buffer[0..section.len], section);
     try @import("blocks.zig").parse_section(&state, section.len, entry, allocator);
+    try @import("paragraph.zig").parse_paragraph(&state, entry, allocator);
 }
 
 test "parse_metadata trims values and accepts reordered keys" {
