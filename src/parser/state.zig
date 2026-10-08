@@ -81,10 +81,10 @@ pub const FileParserState = struct {
         self.used += bytes_read;
     }
 
-    pub fn add_paragraph(self: *FileParserState, idx: usize, allocator: Allocator) !void {
+    pub fn add_paragraph(self: *FileParserState, text: [] const u8, allocator: Allocator) !void {
         const prev_len: usize = self.paragraph.len;
-        self.paragraph = try allocator.realloc(self.paragraph, self.paragraph + idx);
-        @memcpy(self.paragraph[prev_len ..], self.read_buffer[0..idx]);
+        self.paragraph = try allocator.realloc(self.paragraph, prev_len + text.len);
+        @memcpy(self.paragraph[prev_len ..], text);
     }
 
     pub fn deinit_paragraph(self:*FileParserState, allocator: Allocator) void {

@@ -4,6 +4,7 @@ const highlight = @import("../highlight.zig");
 const FileParserState = @import("state.zig").FileParserState;
 const BlockQuoteType = @import("state.zig").BlockQuoteType;
 const Section = @import("state.zig").Section;
+const parse_paragraph = @import("paragraph.zig").parse_paragraph;
 const parse_inline = @import("inline.zig").parse_inline;
 const Io = std.Io;
 const mem = std.mem;
@@ -54,6 +55,7 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
     if (count > 0 and section[count] == ' ') {
         is_header = true;
         count += 1;
+        if (parser_state.paragraph.len != 0) try parse_paragraph(parser_state, entry, allocator);
         const header = try std.fmt.allocPrint(allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
         defer allocator.free(header);
         try entry.add_content(header, allocator);
@@ -61,11 +63,8 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         is_list = true;
         try entry.add_content("<li>", allocator);
         count += 1;
-    } else {
-        const header = try std.fmt.allocPrint(allocator, "<p>", .{});
-        defer allocator.free(header);
-        try entry.add_content(header, allocator);
-    }
+    } else if (parser_state.paragraph.len == 0) try parser_state.add_paragraph("<p>\n", allocator);
+    
     header_count = count;
 
     var content: Io.Writer.Allocating = .init(allocator);
@@ -80,8 +79,6 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         try entry.add_content(close_tag, allocator);
     } else if (is_list) {
         try entry.add_content("</li>", allocator);
-    } else {
-        try entry.add_content("</p>", allocator);
     }
     try entry.add_content("\n", allocator);
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const print = @import("log.zig").print;
 const Io = std.Io;
 const Dir = Io.Dir;
 const mem = std.mem;
@@ -20,6 +21,7 @@ pub fn copy_assets(css_dir: Dir, markdown_dir: Dir, public_dir: Dir, io: Io, all
             !mem.endsWith(u8, entry.basename, ".js") and
             !mem.endsWith(u8, entry.basename, ".gif") and
             !mem.endsWith(u8, entry.basename, ".js")) continue;
+        try print("Copying file {s} (static)\n", .{entry.basename});
         try Dir.copyFile(css_dir, entry.path, public_dir, entry.basename, io, .{});
     }
 
@@ -33,6 +35,7 @@ pub fn copy_assets(css_dir: Dir, markdown_dir: Dir, public_dir: Dir, io: Io, all
             !mem.endsWith(u8, entry.basename, ".jpeg") and
             !mem.endsWith(u8, entry.basename, ".svg") and
             !mem.endsWith(u8, entry.basename, ".gif")) continue;
+        try print("Copying file {s} (md)\n", .{entry.basename});
         try Dir.copyFile(markdown_dir, entry.path, public_dir, entry.basename, io, .{});
     }
 }

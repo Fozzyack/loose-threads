@@ -758,6 +758,7 @@ pre code {
     min-width: 0;
     overflow: hidden;
     padding: 0;
+    margin-bottom: 2rem;
     border: 1px solid var(--border);
     border-radius: 4px;
     color: var(--body-text);
