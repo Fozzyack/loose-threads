@@ -41,7 +41,7 @@ pub fn generate_site(public_dir: Dir, io: Io, allocator: Allocator) !void {
 pub fn format_public(io: Io) !void {
     try print("--- Formatting Files ---\n", .{});
     var child = std.process.spawn(io, .{
-        .argv = &.{ "prettier", "public/", "--write", "--ignore-path", ".prettierignore" },
+        .argv = &.{ "prettier", "public/**/*.html", "--write", "--ignore-path", ".prettierignore" },
         .stdin = .inherit,
         .stderr = .inherit,
         .stdout = .inherit,
