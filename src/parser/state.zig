@@ -68,6 +68,8 @@ pub const FileParserState = struct {
     block_quote_type: BlockQuoteType = BlockQuoteType.NONE,
     block_quote_text: []u8 = &.{},
 
+    paragraph: []u8 = &.{},
+
     pub fn read_section(self: *FileParserState, io: Io) !?void {
         const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
         if (bytes_read == 0) {
@@ -77,6 +79,17 @@ pub const FileParserState = struct {
         }
         self.offset += bytes_read;
         self.used += bytes_read;
+    }
+
+    pub fn add_paragraph(self: *FileParserState, idx: usize, allocator: Allocator) !void {
+        const prev_len: usize = self.paragraph.len;
+        self.paragraph = try allocator.realloc(self.paragraph, self.paragraph + idx);
+        @memcpy(self.paragraph[prev_len ..], self.read_buffer[0..idx]);
+    }
+
+    pub fn deinit_paragraph(self:*FileParserState, allocator: Allocator) void {
+        allocator.free(self.paragraph);
+        self.paragraph = &.{};
     }
 
     pub fn add_code_text(self: *FileParserState, idx: usize, allocator: Allocator) !void {
@@ -144,6 +157,7 @@ pub const FileParserState = struct {
     pub fn deinit(self: *FileParserState, allocator: Allocator) void {
         if (self.code_block_text.len != 0) allocator.free(self.code_block_text);
         if (self.block_quote_text.len != 0) allocator.free(self.block_quote_text);
+        if (self.paragraph.len != 0) allocator.free(self.paragraph);
         if (self.headers.len > 0) {
             for (self.headers) |header| {
                 allocator.free(header);
