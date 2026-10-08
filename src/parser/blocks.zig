@@ -1,14 +1,15 @@
 const std = @import("std");
 const Entry = @import("../entries.zig").Entry;
 const highlight = @import("../highlight.zig");
-const state = @import("state.zig");
-const FileParserState = state.FileParserState;
-const BlockQuoteType = state.BlockQuoteType;
+const FileParserState = @import("state.zig").FileParserState;
+const BlockQuoteType = @import("state.zig").BlockQuoteType;
+const Section = @import("state.zig").Section;
 const parse_inline = @import("inline.zig").parse_inline;
 const Io = std.Io;
 const mem = std.mem;
 const eql = mem.eql;
 const Allocator = mem.Allocator;
+const expect = std.testing.expect;
 
 /// Appends a section as an HTML heading or paragraph followed by a newline.
 /// Recognizes one to five leading `#` characters followed by a space and skips
@@ -116,4 +117,159 @@ pub fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator
     try highlight.render(parser_state.code_block_text, language, &html.writer);
     try html.writer.writeAll("</code></pre></div>\n");
     try entry.add_content(html.written(), allocator);
+}
+
+// Set up the buffered state expected by the parser while keeping test cases concise.
+fn test_parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
+    var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
+    defer state.deinit(allocator);
+    @memcpy(state.read_buffer[0..section.len], section);
+    state.used = section.len;
+    try parse_section(&state, section.len, entry, allocator);
+}
+
+test "parse_section with header" {
+    const test_allocator: std.mem.Allocator = std.testing.allocator;
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
+    const section: []const u8 = "# Test header";
+    try test_parse_section(section, &entry, test_allocator);
+    try expect(eql(u8, "<h1 id=\"header-0\">Test header</h1>\n", entry.content));
+}
+
+test "parse_section with header 2" {
+    const test_allocator: std.mem.Allocator = std.testing.allocator;
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
+    const section: []const u8 = "## Test header";
+    try test_parse_section(section, &entry, test_allocator);
+    try expect(eql(u8, "<h2 id=\"header-0\">Test header</h2>\n", entry.content));
+}
+
+test "parse_section paragraph" {
+    const test_allocator: std.mem.Allocator = std.testing.allocator;
+    var entry: Entry = .{};
+    try entry.add_name("test entry", test_allocator);
+    defer entry.deinit(test_allocator);
+    const section: []const u8 = "some # test entry!";
+    try test_parse_section(section, &entry, test_allocator);
+    try expect(eql(u8, "<p>some # test entry!</p>\n", entry.content));
+}
+
+test "parse_section renders inline bold and italic with both delimiters" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { section: []const u8, html: []const u8 }{
+        .{ .section = "*a*", .html = "<p><span class=\"italic\">a</span></p>\n" },
+        .{ .section = "_a_", .html = "<p><span class=\"italic\">a</span></p>\n" },
+        .{ .section = "**a**", .html = "<p><span class=\"bold\">a</span></p>\n" },
+        .{ .section = "__a__", .html = "<p><span class=\"bold\">a</span></p>\n" },
+        .{ .section = "Before **bold text** and _italic text_ after.", .html = "<p>Before <span class=\"bold\">bold text</span> and <span class=\"italic\">italic text</span> after.</p>\n" },
+        .{ .section = "*one* **two** _three_ __four__", .html = "<p><span class=\"italic\">one</span> <span class=\"bold\">two</span> <span class=\"italic\">three</span> <span class=\"bold\">four</span></p>\n" },
+        .{ .section = "**bold***italic*", .html = "<p><span class=\"bold\">bold</span><span class=\"italic\">italic</span></p>\n" },
+        .{ .section = "## A **bold** heading", .html = "<h2 id=\"header-0\">A <span class=\"bold\">bold</span> heading</h2>\n" },
+        .{ .section = "- An _italic_ item", .html = "<li> An <span class=\"italic\">italic</span> item</li>\n" },
+        .{ .section = "*See* [Example](https://example.com) **today**.", .html = "<p><span class=\"italic\">See</span> \n<a href=\"https://example.com\">Example</a>\n <span class=\"bold\">today</span>.</p>\n" },
+    };
+    for (cases) |case| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try test_parse_section(case.section, &entry, allocator);
+        try std.testing.expectEqualStrings(case.html, entry.content);
+    }
+}
+
+test "parse_section preserves text around links in paragraphs and headings" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { section: []const u8, html: []const u8 }{
+        .{
+            .section = "Visit [Example](https://example.com) today.",
+            .html = "<p>Visit \n<a href=\"https://example.com\">Example</a>\n today.</p>\n",
+        },
+        .{
+            .section = "## Visit [Example](https://example.com)",
+            .html = "<h2 id=\"header-0\">Visit \n<a href=\"https://example.com\">Example</a>\n</h2>\n",
+        },
+        .{
+            .section = "[One](https://example.com/one) and [Two](https://example.com/two).",
+            .html = "<p>\n<a href=\"https://example.com/one\">One</a>\n and \n<a href=\"https://example.com/two\">Two</a>\n.</p>\n",
+        },
+    };
+    for (cases) |case| {
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try test_parse_section(case.section, &entry, allocator);
+        try std.testing.expectEqualStrings(case.html, entry.content);
+    }
+}
+
+test "quote markers render their matching CSS classes" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { marker: []const u8, class: []const u8 }{
+        .{ .marker = "[!NOTE]", .class = "note" },
+        .{ .marker = "[!IMPORTANT]", .class = "important" },
+        .{ .marker = "[!DANGER]", .class = "danger" },
+        .{ .marker = "[!HELP]", .class = "help" },
+        .{ .marker = "[!FAIL]", .class = "fail" },
+        .{ .marker = "[!FAILURE]", .class = "failure" },
+        .{ .marker = "[!TODO]", .class = "todo" },
+        .{ .marker = "[!INFO]", .class = "info" },
+        .{ .marker = "[!QUOTE]", .class = "quote" },
+    };
+    for (cases) |case| {
+        var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
+        defer state.deinit(allocator);
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        const section = try std.fmt.allocPrint(allocator, "> {s}", .{case.marker});
+        defer allocator.free(section);
+        @memcpy(state.read_buffer[0..section.len], section);
+        try parse_section(&state, section.len, &entry, allocator);
+        try std.testing.expectEqual(Section.QUOTE_BLOCK, state.section);
+        try state.add_quote_text("<text> & content", allocator);
+        try parse_quote_block(&state, &entry, allocator);
+        const expected = try std.fmt.allocPrint(allocator, "<div class=\"quote-block-{s}\">\n<p>&lt;text&gt; &amp; content</p>\n</div>\n", .{case.class});
+        defer allocator.free(expected);
+        try std.testing.expectEqualStrings(expected, entry.content);
+    }
+}
+
+test "unknown quote markers remain ordinary quote text" {
+    const allocator = std.testing.allocator;
+    var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
+    defer state.deinit(allocator);
+    var entry: Entry = .{ .name = &.{} };
+    defer entry.deinit(allocator);
+    const section = "> [!UNKNOWN]";
+    @memcpy(state.read_buffer[0..section.len], section);
+    try parse_section(&state, section.len, &entry, allocator);
+    try parse_quote_block(&state, &entry, allocator);
+    try std.testing.expectEqualStrings("<div class=\"quote-block-none\">\n<p>[!UNKNOWN]</p>\n</div>\n", entry.content);
+}
+
+test "parse_code_block shows Python and safely labels unknown languages" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { language: []const u8, icon: []const u8, label: []const u8 }{
+        .{ .language = "python", .icon = "python", .label = "Python" },
+        .{ .language = "rust", .icon = "code", .label = "rust" },
+        .{ .language = "<img>&", .icon = "code", .label = "&lt;img&gt;&amp;" },
+    };
+    for (cases) |case| {
+        var state: FileParserState = .{ .file = undefined };
+        defer state.deinit(allocator);
+        try state.change_language(case.language);
+        @memcpy(state.read_buffer[0..5], "hello");
+        try state.add_code_text(5, allocator);
+        var entry: Entry = .{ .name = &.{} };
+        defer entry.deinit(allocator);
+        try parse_code_block(&state, &entry, allocator);
+        const expected = try std.fmt.allocPrint(
+            allocator,
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre>\n<code>hello</code></pre></div>\n",
+            .{ case.icon, case.label },
+        );
+        defer allocator.free(expected);
+        try std.testing.expectEqualStrings(expected, entry.content);
+    }
 }

@@ -68,3 +68,94 @@ pub fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: 
     }
     try content_writer.writeAll(section[old_count..count]);
 }
+
+test "parse_inline preserves unmatched and empty emphasis markers" {
+    const allocator = std.testing.allocator;
+    const sections = [_][]const u8{
+        "*",                  "_",                   "**",      "__",      "***",      "___",              "****",               "____",
+        "Before *unfinished", "Before __unfinished", "**bold*", "__bold_", "*italic_", "Trailing marker*", "Trailing markers**",
+    };
+    for (sections) |section| {
+        var output: Io.Writer.Allocating = .init(allocator);
+        defer output.deinit();
+        try parse_inline(section, &output.writer, allocator);
+        try std.testing.expectEqualStrings(section, output.written());
+    }
+}
+
+test "parse_inline keeps extra closing markers inside italic text" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { section: []const u8, html: []const u8 }{
+        .{ .section = "**what** *test** **what**", .html = "<span class=\"bold\">what</span> <span class=\"italic\">test*</span> <span class=\"bold\">what</span>" },
+        .{ .section = "__what__ _test__ __what__", .html = "<span class=\"bold\">what</span> <span class=\"italic\">test_</span> <span class=\"bold\">what</span>" },
+        .{ .section = "*test**", .html = "<span class=\"italic\">test*</span>" },
+        .{ .section = "*test*** *valid*", .html = "<span class=\"italic\">test**</span> <span class=\"italic\">valid</span>" },
+    };
+    for (cases) |case| {
+        var output: Io.Writer.Allocating = .init(allocator);
+        defer output.deinit();
+        try parse_inline(case.section, &output.writer, allocator);
+        try std.testing.expectEqualStrings(case.html, output.written());
+    }
+}
+
+test "parse_inline renders italic inside bold" {
+    const allocator = std.testing.allocator;
+    const sections = [_][]const u8{
+        "**what *test* what**",
+        "__what _test_ what__",
+        "**what _test_ what**",
+        "__what *test* what__",
+    };
+    for (sections) |section| {
+        var output: Io.Writer.Allocating = .init(allocator);
+        defer output.deinit();
+        try parse_inline(section, &output.writer, allocator);
+        try std.testing.expectEqualStrings("<span class=\"bold\">what <span class=\"italic\">test</span> what</span>", output.written());
+    }
+}
+
+test "parse_inline renders a link" {
+    const allocator = std.testing.allocator;
+    var output: Io.Writer.Allocating = .init(allocator);
+    defer output.deinit();
+
+    try parse_inline("[Example](https://example.com)", &output.writer, allocator);
+
+    try std.testing.expectEqualStrings("\n<a href=\"https://example.com\">Example</a>\n", output.written());
+}
+
+test "parse_inline renders supported image extensions with alt text" {
+    const allocator = std.testing.allocator;
+    // This parser identifies images by extension, using [alt](url) without '!'.
+    const extensions = [_][]const u8{ "jpg", "jpeg", "png", "gif" };
+    for (extensions) |extension| {
+        const section = try std.fmt.allocPrint(allocator, "Before [A photo](https://example.com/photo.{s}) after.", .{extension});
+        defer allocator.free(section);
+        const html = try std.fmt.allocPrint(allocator, "Before \n<img src=\"https://example.com/photo.{s}\" alt=\"A photo\"> after.", .{extension});
+        defer allocator.free(html);
+        var output: Io.Writer.Allocating = .init(allocator);
+        defer output.deinit();
+
+        try parse_inline(section, &output.writer, allocator);
+        try std.testing.expectEqualStrings(html, output.written());
+    }
+}
+
+test "parse_inline preserves incomplete link syntax as plain text" {
+    const allocator = std.testing.allocator;
+    const sections = [_][]const u8{
+        "[",
+        "[label",
+        "[label]",
+        "[label](https://example.com",
+        "[label] https://example.com",
+    };
+    for (sections) |section| {
+        var output: Io.Writer.Allocating = .init(allocator);
+        defer output.deinit();
+
+        try parse_inline(section, &output.writer, allocator);
+        try std.testing.expectEqualStrings(section, output.written());
+    }
+}

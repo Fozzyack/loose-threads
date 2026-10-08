@@ -100,6 +100,174 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
     return entries;
 }
 
-test {
-    _ = @import("tests.zig");
+test "create_entries records complete formatted headings once with matching TOC anchors" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "headings.md",
+        .data = "---\nname: Headings\ntoc: true\n---\n# Before **bold _nested_** after\nParagraph with *emphasis*.\n## Visit [Example](https://example.com) today\n### Last\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqual(@as(usize, 1), posts.len);
+    try std.testing.expectEqualStrings(
+        "<h1 id=\"header-0\">Before <span class=\"bold\">bold <span class=\"italic\">nested</span></span> after</h1>\n" ++
+            "<p>Paragraph with <span class=\"italic\">emphasis</span>.</p>\n" ++
+            "<h2 id=\"header-1\">Visit \n<a href=\"https://example.com\">Example</a>\n today</h2>\n" ++
+            "<h3 id=\"header-2\">Last</h3>\n",
+        posts[0].content,
+    );
+    try std.testing.expectEqualStrings(
+        "<nav class=\"table-of-contents\" aria-label=\"Table of contents\">\n" ++
+            "<h2>Table of Contents</h2>\n<ol>\n" ++
+            "<li><a href=\"#header-0\">Before **bold _nested_** after</a></li>\n" ++
+            "<li><a href=\"#header-1\">Visit [Example](https://example.com) today</a></li>\n" ++
+            "<li><a href=\"#header-2\">Last</a></li>\n" ++
+            "</ol>\n</nav>",
+        posts[0].table_of_contents,
+    );
+}
+
+fn test_create_entries_allocations(allocator: Allocator, markdown_dir: Dir, io: Io) !void {
+    // Allocating writers report allocation failures as WriteFailed; the testing
+    // utility expects OutOfMemory for the injected allocator failure.
+    const posts = create_entries(markdown_dir, io, allocator) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => return err,
+    };
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqual(@as(usize, 2), posts.len);
+}
+
+test "create_entries cleans up each allocation failure including previously parsed entries" {
+    const io = std.testing.io;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    const data = "---\nname: Post\ntoc: true\n---\n# Heading\nBody\n";
+    try markdown.dir.writeFile(io, .{ .sub_path = "first.md", .data = data });
+    try markdown.dir.writeFile(io, .{ .sub_path = "second.md", .data = data });
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, test_create_entries_allocations, .{ markdown.dir, io });
+}
+
+test "create_entries propagates parse and read errors while freeing partial state" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    const cases = [_]struct { data: []const u8, err: anyerror }{
+        .{ .data = "---\nname: Partial\n", .err = error.FailedToParseMetadata },
+        .{ .data = "---\nname: Partial\n---\n# Heading\n```zig\nconst x = 1;\n", .err = error.EndOfCodeBlockNotFound },
+        .{ .data = "---\nname: Partial\n---\n# Heading\n###\n", .err = error.InvalidLine },
+    };
+    for (cases) |case| {
+        try markdown.dir.writeFile(io, .{ .sub_path = "partial.md", .data = case.data });
+        try std.testing.expectError(case.err, create_entries(markdown.dir, io, allocator));
+    }
+}
+
+test "create_entries preserves quote text and following paragraphs" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "quote.md",
+        .data = "---\nname: Quote\n---\n> test\n> test quote block\n\nsomething here\n> [!NOTE]\n> note\nAfter\n> [!IMPORTANT]\n> important\nAfter again\n> <last> & quote\n> final",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqualStrings(
+        "<div class=\"quote-block-none\">\n<p>test</p>\n<p>test quote block</p>\n</div>\n" ++
+            "<p>something here</p>\n" ++
+            "<div class=\"quote-block-note\">\n<p>note</p>\n</div>\n<p>After</p>\n" ++
+            "<div class=\"quote-block-important\">\n<p>important</p>\n</div>\n<p>After again</p>\n" ++
+            "<div class=\"quote-block-none\">\n<p>&lt;last&gt; &amp; quote</p>\n<p>final</p>\n</div>\n",
+        posts[0].content,
+    );
+}
+
+test "create_entries parses each file independently" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "first.md",
+        .data = "---\nname: First\nslug: first\ndate: 2026-10-01\n---\n\n# First heading\nFirst body.\n",
+    });
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "second.md",
+        .data = "---\nname: Second\nslug: second\ntimestamp: 0\n---\n\n## Second heading\nSecond body.\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqual(@as(usize, 2), posts.len);
+    // Directory traversal order is unspecified.
+    for (posts) |post| {
+        if (mem.eql(u8, post.slug, "first")) {
+            try std.testing.expectEqualStrings("First", post.name);
+            try std.testing.expectEqualStrings("<p class=\"post-date\">October 1, 2026</p>\n<h1 id=\"header-0\">First heading</h1>\n<p>First body.</p>\n", post.content);
+        } else {
+            try std.testing.expectEqualStrings("second", post.slug);
+            try std.testing.expectEqualStrings("Second", post.name);
+            try std.testing.expectEqualStrings("<p class=\"post-date\">January 1, 1970 at 00:00:00 UTC</p>\n<h2 id=\"header-0\">Second heading</h2>\n<p>Second body.</p>\n", post.content);
+        }
+    }
+    try std.testing.expect(!mem.eql(u8, posts[0].slug, posts[1].slug));
+}
+
+test "code block integration highlights Zig" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "code.md",
+        .data = "---\nname: Code\nslug: code\n---\n```zig\nconst answer = 42;\n```\nAfter\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqualStrings(
+        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre>\n<code class=\"language-zig\"><span class=\"tok-keyword\">const</span> answer <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;\n</code></pre></div>\n<p>After</p>\n",
+        posts[0].content,
+    );
+}
+
+test "code block integration escapes plain code without stale languages" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "code.md",
+        .data = "---\nname: Code\n---\n```zig\nconst x = 42;\n```\n```c\n<a> & 42\n```\n```\nconst x = 42;\n```\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqualStrings(
+        "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre>\n<code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;\n</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-c.svg\" alt=\"\" width=\"20\" height=\"20\"><span>C</span></div><pre>\n<code>&lt;a&gt; &amp; 42\n</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Code</span></div><pre>\n<code>const x = 42;\n</code></pre></div>\n",
+        posts[0].content,
+    );
 }
