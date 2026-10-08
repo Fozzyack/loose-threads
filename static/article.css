@@ -22,6 +22,7 @@
 }
 
 .article-page article {
+    min-width: 0;
     font-size: 1.0625rem;
     line-height: 1.85;
 }
@@ -62,6 +63,33 @@
 .table-of-contents a:hover {
     color: var(--text);
     text-decoration: underline;
+}
+
+/* Extend into both margins so the article stays centered beside its TOC. */
+@media (min-width: 80rem) {
+    .article-layout:has(.table-of-contents) {
+        display: grid;
+        grid-template-columns: 13rem minmax(0, 44rem) 13rem;
+        column-gap: 2rem;
+        margin-inline: -15rem;
+        align-items: start;
+    }
+
+    .article-layout>.table-of-contents {
+        grid-column: 3;
+        grid-row: 1;
+        position: sticky;
+        top: 2rem;
+        max-height: calc(100vh - 4rem);
+        max-height: calc(100dvh - 4rem);
+        overflow-y: auto;
+        margin-bottom: 0;
+    }
+
+    .article-layout>article {
+        grid-column: 2;
+        grid-row: 1;
+    }
 }
 
 .article-page article>*+* {

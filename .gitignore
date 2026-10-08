@@ -6,4 +6,3 @@ public/
 *.out
 markdown/*
 !markdown/markdown_files_here
-!markdown/hello_world.md
