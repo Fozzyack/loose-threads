@@ -1,7 +1,7 @@
 const std = @import("std");
 const log = @import("log.zig");
 const entries = @import("entries.zig");
-const parser = @import("parser.zig");
+const parser = @import("parser/parser.zig");
 const assets = @import("assets.zig");
 const template = @import("templates.zig");
 

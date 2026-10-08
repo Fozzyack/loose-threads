@@ -1,11 +1,19 @@
 const std = @import("std");
-const log = @import("log.zig");
-const Entry = @import("entries.zig").Entry;
-const highlight = @import("highlight.zig");
+const create_entries = @import("parser.zig").create_entries;
+const Entry = @import("../entries.zig").Entry;
+const parser_state = @import("state.zig");
+const FileParserState = parser_state.FileParserState;
+const Section = parser_state.Section;
+const strip_newline = parser_state.strip_newline;
+const blocks = @import("blocks.zig");
+const parse_section = blocks.parse_section;
+const parse_code_block = blocks.parse_code_block;
+const parse_quote_block = blocks.parse_quote_block;
+const parse_metadata = @import("metadata.zig").parse_metadata;
+const create_toc = @import("toc.zig").create_toc;
 const Io = std.Io;
 
 const Dir = Io.Dir;
-const File = Io.File;
 
 const mem = std.mem;
 
@@ -14,151 +22,21 @@ const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 const eql = std.mem.eql;
 
-const BlockQuoteType = enum(u8) {
-    NONE,
-    NOTE,
-    IMPORTANT,
-    DANGER,
-    HELP,
-    FAIL,
-    FAILURE,
-    TODO,
-    INFO,
-    QUOTE,
+// Tests and test helpers.
 
-    fn from_marker(text: []const u8) ?BlockQuoteType {
-        inline for (.{ .NOTE, .IMPORTANT, .DANGER, .HELP, .FAIL, .FAILURE, .TODO, .INFO, .QUOTE }) |tag| {
-            const quote_type: BlockQuoteType = tag;
-            if (eql(u8, text, "[!" ++ @tagName(quote_type) ++ "]")) return quote_type;
-        }
-        return null;
-    }
+fn test_add_headers(allocator: Allocator) !void {
+    var state: FileParserState = .{ .file = undefined };
+    defer state.deinit(allocator);
+    try state.add_header("First heading", allocator);
+    try state.add_header("Second heading", allocator);
+    try std.testing.expectEqual(@as(u8, 2), state.header_count);
+    try std.testing.expectEqualStrings("First heading", state.headers[0]);
+    try std.testing.expectEqualStrings("Second heading", state.headers[1]);
+}
 
-    fn css_name(self: BlockQuoteType) []const u8 {
-        return switch (self) {
-            .NONE => "none",
-            .NOTE => "note",
-            .IMPORTANT => "important",
-            .DANGER => "danger",
-            .HELP => "help",
-            .FAIL => "fail",
-            .FAILURE => "failure",
-            .TODO => "todo",
-            .INFO => "info",
-            .QUOTE => "quote",
-        };
-    }
-};
-
-const Section = enum(u8) {
-    METADATA,
-    CODE_BLOCK,
-    QUOTE_BLOCK,
-    NORMAL_MODE,
-};
-
-const FileParserState = struct {
-    file: File,
-    read_buffer: [8192]u8 = undefined,
-    used: usize = 0,
-    offset: usize = 0,
-
-    header_count: u8 = 0,
-    headers: [][]u8 = &.{},
-    has_toc: bool = false,
-
-    section: Section = .METADATA,
-
-    code_language: [16]u8 = undefined,
-    code_language_len: usize = 0,
-    code_block_text: []u8 = &.{},
-
-    block_quote_type: BlockQuoteType = BlockQuoteType.NONE,
-    block_quote_text: []u8 = &.{},
-
-    pub fn read_section(self: *FileParserState, io: Io) !?void {
-        const bytes_read: usize = try self.file.readPositionalAll(io, self.read_buffer[self.used..], self.offset);
-        if (bytes_read == 0) {
-            if (self.section == .METADATA) return error.FailedToParseMetadata;
-            if (self.section == .CODE_BLOCK) return error.EndOfCodeBlockNotFound;
-            return null;
-        }
-        self.offset += bytes_read;
-        self.used += bytes_read;
-    }
-
-    pub fn add_code_text(self: *FileParserState, idx: usize, allocator: Allocator) !void {
-        const prev_len: usize = self.code_block_text.len;
-        self.code_block_text = try allocator.realloc(self.code_block_text, prev_len + idx);
-        @memcpy(self.code_block_text[prev_len..], self.read_buffer[0..idx]);
-    }
-
-    pub fn deinit_code_text(self: *FileParserState, allocator: Allocator) void {
-        allocator.free(self.code_block_text);
-        self.code_block_text = &.{};
-    }
-
-    pub fn add_quote_text(self: *FileParserState, text: []const u8, allocator: Allocator) !void {
-        const prev_len: usize = self.block_quote_text.len;
-
-        var output: Io.Writer.Allocating = .init(allocator);
-        defer output.deinit();
-        try output.writer.writeAll("<p>");
-        try highlight.render(text, "", &output.writer);
-        try output.writer.writeAll("</p>\n");
-
-        self.block_quote_text = try allocator.realloc(self.block_quote_text, prev_len + output.written().len);
-        @memcpy(self.block_quote_text[prev_len..], output.written());
-    }
-
-    pub fn deinit_block_text(self: *FileParserState, allocator: Allocator) void {
-        allocator.free(self.block_quote_text);
-        self.block_quote_text = &.{};
-    }
-
-    pub fn change_language(self: *FileParserState, language: []const u8) !void {
-        if (language.len > self.code_language.len) {
-            return error.InvalidCodeLanguageTooLong;
-        }
-        self.code_language = undefined;
-        @memcpy(self.code_language[0..language.len], language[0..]);
-        self.code_language_len = language.len;
-    }
-
-    pub fn add_header(self: *FileParserState, header: []const u8, allocator: Allocator) !void {
-        const prev_len = self.headers.len;
-        self.headers = try allocator.realloc(self.headers, prev_len + 1);
-        self.headers[prev_len] = try allocator.alloc(u8, header.len);
-        @memcpy(self.headers[prev_len], header);
-        self.header_count += 1;
-    }
-
-    pub fn strip_newlines(self: *FileParserState) void {
-        if (self.read_buffer.len == 0) return;
-        var newline_count: usize = 0;
-        for (self.read_buffer[0..self.used]) |character| {
-            if (character == '\n') newline_count += 1 else break;
-        }
-        @memmove(self.read_buffer[0 .. self.used - newline_count], self.read_buffer[newline_count..self.used]);
-        self.used -= newline_count;
-    }
-
-    pub fn strip_section(self: *FileParserState, idx: usize) void {
-        @memmove(self.read_buffer[0 .. self.used - (idx + 1)], self.read_buffer[(idx + 1)..self.used]);
-        self.used -= (idx + 1);
-    }
-
-    pub fn deinit(self: *FileParserState, allocator: Allocator) void {
-        if (self.code_block_text.len != 0) allocator.free(self.code_block_text);
-        if (self.block_quote_text.len != 0) allocator.free(self.block_quote_text);
-        if (self.headers.len > 0) {
-            for (self.headers) |header| {
-                allocator.free(header);
-            }
-            allocator.free(self.headers);
-        }
-    }
-};
+test "FileParserState add_header is safe at every allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, test_add_headers, .{});
+}
 
 test "FileParserState add_code_text appends only the requested buffer prefix" {
     const allocator = std.testing.allocator;
@@ -251,147 +129,6 @@ test "FileParserState deinit frees code text and accepts empty text" {
     // std.testing.allocator reports a leak if deinit does not free this text.
 }
 
-/// Renders inline content, recursively parsing the text inside emphasis spans.
-fn parse_inline(parser_state: *FileParserState, section: []const u8, is_header: bool, content_writer: *Io.Writer, allocator: Allocator) !void {
-    var count: usize = 0;
-    var old_count: usize = 0;
-
-    while (count < section.len) {
-        if (section[count] == '[') {
-            link: {
-                const tag_idx = count + (mem.findScalar(u8, section[count..], ']') orelse break :link);
-                if (tag_idx + 1 < section.len and section[tag_idx + 1] == '(') {
-                    const closing_tag_idx = tag_idx + 1 + (mem.findScalar(u8, section[tag_idx + 1 ..], ')') orelse break :link);
-                    try content_writer.writeAll(section[old_count..count]);
-                    const is_image: bool =
-                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpg") != null or
-                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpeg") != null or
-                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".png") != null or
-                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".gif") != null;
-                    const name: []const u8 = section[count + 1 .. tag_idx];
-                    const link: []const u8 = section[tag_idx + 2 .. closing_tag_idx];
-                    if (is_image) {
-                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\">", .{ link, name });
-                        defer allocator.free(tag);
-                        try content_writer.writeAll(tag);
-                    } else {
-                        const tag = try std.fmt.allocPrint(allocator, "\n<a href=\"{s}\">{s}</a>\n", .{ link, name });
-                        defer allocator.free(tag);
-                        try content_writer.writeAll(tag);
-                    }
-                    count = closing_tag_idx + 1;
-                    old_count = count;
-                    continue;
-                }
-            }
-        }
-        if (section[count] == '_' or section[count] == '*') {
-            const is_bold = count + 1 < section.len and section[count + 1] == section[count];
-            const delimiter_len: usize = if (is_bold) 2 else 1;
-            const delimiter = section[count .. count + delimiter_len];
-            const text_start = count + delimiter_len;
-            bold_italic: {
-                var text_end = text_start + (mem.find(u8, section[text_start..], delimiter) orelse break :bold_italic);
-                if (text_end == text_start) break :bold_italic;
-                if (!is_bold) {
-                    while (text_end + 1 < section.len and section[text_end + 1] == section[count]) : (text_end += 1) {}
-                }
-
-                try content_writer.writeAll(section[old_count..count]);
-                const class = if (is_bold) "bold" else "italic";
-                const tag = try std.fmt.allocPrint(allocator, "<span class=\"{s}\">", .{class});
-                defer allocator.free(tag);
-                try content_writer.writeAll(tag);
-                try parse_inline(parser_state, section[text_start..text_end], is_header, content_writer, allocator);
-                try content_writer.writeAll("</span>");
-                count = text_end + delimiter_len;
-                old_count = count;
-                continue;
-            }
-            count += delimiter_len;
-            continue;
-        }
-
-        count += 1;
-    }
-    if (is_header) try parser_state.add_header(section[old_count..count], allocator);
-    try content_writer.writeAll(section[old_count..count]);
-}
-
-/// Appends a section as an HTML heading or paragraph followed by a newline.
-/// Recognizes one to five leading `#` characters followed by a space and skips
-/// empty sections. Text is copied without HTML escaping; a section consisting
-/// only of recognized heading markers returns `error.InvalidLine`.
-fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
-    var section: []u8 = parser_state.read_buffer[0..section_end];
-    if (section.len == 0) return;
-    if (section[0] == '>' and (section.len == 1 or section[1] == ' ')) {
-        blk: {
-            if (parser_state.section != .QUOTE_BLOCK) {
-                parser_state.block_quote_type = .NONE;
-                const text_start: usize = @min(2, section.len);
-                const block_quote_type = std.mem.trim(u8, section[text_start..], " \t\r");
-                if (BlockQuoteType.from_marker(block_quote_type)) |quote_type| {
-                    parser_state.block_quote_type = quote_type;
-                } else {
-                    try parser_state.add_quote_text(section[text_start..], allocator);
-                    break :blk;
-                }
-            }
-        }
-        parser_state.section = .QUOTE_BLOCK;
-        return;
-    }
-    if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
-        if (parser_state.section != .QUOTE_BLOCK) {
-            const language = std.mem.trim(u8, section[3..], " \t\r");
-            try parser_state.change_language(language);
-        } else return;
-        parser_state.section = .CODE_BLOCK;
-        return;
-    }
-    var count: usize = 0;
-    var header_count: usize = 0;
-    var is_header = false;
-    var is_list = false;
-    while (count < section.len and section[count] == '#' and parser_state.section != .METADATA) : (count += 1) {
-        if (count >= 5) break;
-    }
-    if (count >= section.len) return error.InvalidLine;
-    if (count > 0 and section[count] == ' ') {
-        is_header = true;
-        count += 1;
-        const header = try std.fmt.allocPrint(allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
-        defer allocator.free(header);
-        try entry.add_content(header, allocator);
-    } else if (section[count] == '-' and count + 1 < section.len) {
-        is_list = true;
-        try entry.add_content("<li>", allocator);
-        count += 1;
-    } else {
-        const header = try std.fmt.allocPrint(allocator, "<p>", .{});
-        defer allocator.free(header);
-        try entry.add_content(header, allocator);
-    }
-    header_count = count;
-
-    var content: Io.Writer.Allocating = .init(allocator);
-    defer content.deinit();
-    try parse_inline(parser_state, section[count..], is_header, &content.writer, allocator);
-    try entry.add_content(content.written(), allocator);
-
-    if (is_header) {
-        const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
-        defer allocator.free(close_tag);
-        try entry.add_content(close_tag, allocator);
-    } else if (is_list) {
-        try entry.add_content("</li>", allocator);
-    } else {
-        try entry.add_content("</p>", allocator);
-    }
-    try entry.add_content("\n", allocator);
-}
-
 // Set up the buffered state expected by the parser while keeping test cases concise.
 fn test_parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
     var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
@@ -417,7 +154,7 @@ test "parse_section with header" {
     defer entry.deinit(test_allocator);
     const section: []const u8 = "# Test header";
     try test_parse_section(section, &entry, test_allocator);
-    try expect(eql(u8, "<h1>Test header</h1>\n", entry.content));
+    try expect(eql(u8, "<h1 id=\"header-0\">Test header</h1>\n", entry.content));
 }
 
 test "parse_section with header 2" {
@@ -427,7 +164,7 @@ test "parse_section with header 2" {
     defer entry.deinit(test_allocator);
     const section: []const u8 = "## Test header";
     try test_parse_section(section, &entry, test_allocator);
-    try expect(eql(u8, "<h2>Test header</h2>\n", entry.content));
+    try expect(eql(u8, "<h2 id=\"header-0\">Test header</h2>\n", entry.content));
 }
 
 test "parse_section paragraph" {
@@ -450,7 +187,7 @@ test "parse_section renders inline bold and italic with both delimiters" {
         .{ .section = "Before **bold text** and _italic text_ after.", .html = "<p>Before <span class=\"bold\">bold text</span> and <span class=\"italic\">italic text</span> after.</p>\n" },
         .{ .section = "*one* **two** _three_ __four__", .html = "<p><span class=\"italic\">one</span> <span class=\"bold\">two</span> <span class=\"italic\">three</span> <span class=\"bold\">four</span></p>\n" },
         .{ .section = "**bold***italic*", .html = "<p><span class=\"bold\">bold</span><span class=\"italic\">italic</span></p>\n" },
-        .{ .section = "## A **bold** heading", .html = "<h2>A <span class=\"bold\">bold</span> heading</h2>\n" },
+        .{ .section = "## A **bold** heading", .html = "<h2 id=\"header-0\">A <span class=\"bold\">bold</span> heading</h2>\n" },
         .{ .section = "- An _italic_ item", .html = "<li> An <span class=\"italic\">italic</span> item</li>\n" },
         .{ .section = "*See* [Example](https://example.com) **today**.", .html = "<p><span class=\"italic\">See</span> \n<a href=\"https://example.com\">Example</a>\n <span class=\"bold\">today</span>.</p>\n" },
     };
@@ -529,7 +266,7 @@ test "parse_section preserves text around links in paragraphs and headings" {
         },
         .{
             .section = "## Visit [Example](https://example.com)",
-            .html = "<h2>Visit \n<a href=\"https://example.com\">Example</a>\n</h2>\n",
+            .html = "<h2 id=\"header-0\">Visit \n<a href=\"https://example.com\">Example</a>\n</h2>\n",
         },
         .{
             .section = "[One](https://example.com/one) and [Two](https://example.com/two).",
@@ -581,51 +318,6 @@ test "parse_section preserves incomplete link syntax as plain text" {
     }
 }
 
-fn parse_quote_block(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
-    var html: Io.Writer.Allocating = .init(allocator);
-    defer html.deinit();
-    const quote_type = parser_state.block_quote_type.css_name();
-    try html.writer.print("<div class=\"quote-block-{s}\">\n", .{quote_type});
-    try html.writer.writeAll(parser_state.block_quote_text);
-    try html.writer.writeAll("</div>\n");
-
-    try entry.add_content(html.written(), allocator);
-    parser_state.deinit_block_text(allocator);
-}
-
-// Parse Code block
-fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
-    var html: Io.Writer.Allocating = .init(allocator);
-    defer html.deinit();
-    const language = parser_state.code_language[0..parser_state.code_language_len];
-    const icon = if (eql(u8, language, "zig")) "zig" else if (eql(u8, language, "c")) "c" else if (eql(u8, language, "python")) "python" else "code";
-    const label = if (eql(u8, language, "zig")) "Zig" else if (eql(u8, language, "c")) "C" else if (eql(u8, language, "python")) "Python" else if (language.len == 0) "Code" else language;
-    try html.writer.print("<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>", .{icon});
-    // Render the label as escaped plain text, never as markup or an asset path.
-    try highlight.render(label, "", &html.writer);
-    try html.writer.writeAll("</span></div>");
-    // Only known language names are included in HTML attributes.
-    try html.writer.writeAll(if (eql(u8, language, "zig"))
-        "<pre>\n<code class=\"language-zig\">"
-    else
-        "<pre>\n<code>");
-    try highlight.render(parser_state.code_block_text, language, &html.writer);
-    try html.writer.writeAll("</code></pre></div>\n");
-    try entry.add_content(html.written(), allocator);
-}
-
-fn create_toc(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
-    if (parser_state.headers.len == 0) return;
-    var html: Io.Writer.Allocating = .init(allocator);
-    defer html.deinit();
-    try html.writer.writeAll("<nav class=\"table-of-contents\" aria-label=\"Table of contents\">\n<h2>Table of Contents</h2>\n<ol>\n");
-    for (parser_state.headers, 0..) |header, idx| {
-        try html.writer.print("<li><a href=\"#header-{d}\">{s}</a></li>\n", .{ idx, header });
-    }
-    try html.writer.writeAll("</ol>\n</nav>");
-    try entry.add_toc(html.written(), allocator);
-}
-
 test "create_toc omits empty headings and renders working anchor links" {
     const allocator = std.testing.allocator;
     var state: FileParserState = .{ .file = undefined };
@@ -650,22 +342,6 @@ test "create_toc omits empty headings and renders working anchor links" {
     );
 }
 
-/// Shifts past leading newline bytes before the first non-newline byte in the
-/// used portion of `buffer` and reduces `used` by the number removed.
-/// Leaves all-newline input unchanged; `used` must not exceed `buffer.len`.
-fn strip_newline(buffer: []u8, used: *usize) void {
-    if (buffer.len == 0) return;
-    var newline_count: usize = 0;
-    for (buffer[0..used.*], 0..used.*) |character, index| {
-        if (character != '\n') {
-            newline_count = index;
-            break;
-        }
-    }
-    @memmove(buffer[0 .. used.* - newline_count], buffer[newline_count..used.*]);
-    used.* -= newline_count;
-}
-
 test "strip newline" {
     var test_buffer: [9]u8 = "\n\n\n\ntest\n".*;
     var used: usize = test_buffer.len;
@@ -678,46 +354,6 @@ test "strip newline no newline" {
     var used: usize = test_buffer.len;
     strip_newline(&test_buffer, &used);
     try expect(eql(u8, "test\n", test_buffer[0..used]));
-}
-
-/// Parses newline-terminated metadata lines without the `---` delimiters.
-/// Accepts `name`, `description`, `slug`, `date`, and `timestamp` keys,
-/// optionally followed by one space. Trims surrounding spaces from values;
-/// strings are allocator-owned copies and timestamps are numeric Unix seconds.
-/// After parsing, appends one post-date paragraph: the timestamp's UTC date and
-/// time if present, otherwise the date. Metadata order does not affect this choice.
-/// Malformed or impossible dates return `error.InvalidMetadataDate`; malformed
-/// or out-of-range timestamps return `error.InvalidMetadataTimestamp`.
-/// Missing separators or newlines return `error.ErrorParsingMetadata`; unknown keys
-/// return `error.InvalidMetadataFlagFound`. Fields already stored remain on failure.
-fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry: *Entry, allocator: Allocator) !void {
-    var start: usize = 0;
-    var buffer: []u8 = parser_state.read_buffer[4 .. metadata_end + 1];
-    while (start < buffer.len) {
-        const separator_idx = start + (mem.findScalar(u8, buffer[start..], ':') orelse return error.ErrorParsingMetadata);
-        const newline_idx = start + (mem.findScalar(u8, buffer[start..], '\n') orelse return error.ErrorParsingMetadata);
-        if (eql(u8, buffer[start..separator_idx], "name") or eql(u8, buffer[start..separator_idx], "name ")) {
-            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_name(value, allocator);
-        } else if (eql(u8, buffer[start..separator_idx], "description") or eql(u8, buffer[start..separator_idx], "description ")) {
-            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_description(value, allocator);
-        } else if (eql(u8, buffer[start..separator_idx], "slug") or eql(u8, buffer[start..separator_idx], "slug ")) {
-            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_slug(value, allocator);
-        } else if (eql(u8, buffer[start..separator_idx], "date") or eql(u8, buffer[start..separator_idx], "date ")) {
-            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_date(value, allocator);
-        } else if (eql(u8, buffer[start..separator_idx], "timestamp") or eql(u8, buffer[start..separator_idx], "timestamp ")) {
-            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_timestamp(value);
-        } else if (eql(u8, buffer[start..separator_idx], "toc") or eql(u8, buffer[start..separator_idx], "toc ")) {
-            const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            if (eql(u8, value, "true")) parser_state.has_toc = true;
-        } else return error.InvalidMetadataFlagFound;
-        start = newline_idx + 1;
-    }
-    try entry.render_date(allocator);
 }
 
 test "parse_metadata trims values and accepts reordered keys" {
@@ -852,90 +488,77 @@ test "parse_metadata rejects invalid Unix timestamps" {
     }
 }
 
-/// Recursively reads `.md` files into entries using their metadata, appending a
-/// post-date paragraph and rendered newline-ended sections.
-/// The caller owns the returned slice and must deinitialize each entry and free
-/// the slice using `allocator`.
-pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
-    var walker = try Dir.walk(markdown_dir, allocator);
-    defer walker.deinit();
-
-    var entries: []Entry = &.{};
-
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!mem.endsWith(u8, entry.basename, ".md")) continue;
-        var file = try markdown_dir.openFile(io, entry.path, .{});
-        defer file.close(io);
-
-        try log.print("parsing ... {s}\n", .{entry.path});
-
-        var parser_state: FileParserState = .{ .file = file };
-
-        var new_entry: Entry = .{};
-
-        while (true) {
-            parser_state.read_section(io) catch {
-                parser_state.deinit(allocator);
-            } orelse break;
-            parser_state.strip_newlines();
-
-            while (true) {
-                if (parser_state.used == 0) break;
-                if (parser_state.section == .METADATA) {
-                    const metadata_start: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "---\n") orelse break;
-                    if (metadata_start != 0) return error.IncorrectMetadataDelimiter;
-                    const metadata_end: usize = mem.find(u8, parser_state.read_buffer[0..parser_state.used], "\n---\n") orelse break;
-                    try parse_metadata(&parser_state, metadata_end, &new_entry, allocator);
-                    parser_state.strip_section(metadata_end + 3);
-                    parser_state.strip_newlines();
-                    parser_state.section = .NORMAL_MODE;
-                } else if (parser_state.section == .CODE_BLOCK) {
-                    const _code_end: ?usize = mem.find(u8, parser_state.read_buffer[0..3], "```");
-                    if (_code_end) |code_end| {
-                        try parse_code_block(&parser_state, &new_entry, allocator);
-                        parser_state.strip_section(code_end + 3);
-                        parser_state.strip_newlines();
-                        parser_state.deinit_code_text(allocator);
-                        parser_state.section = .NORMAL_MODE;
-                    } else {
-                        const newline_idx: usize = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
-                        try parser_state.add_code_text(newline_idx + 1, allocator);
-                        parser_state.strip_section(newline_idx);
-                    }
-                } else if (parser_state.section == .QUOTE_BLOCK) {
-                    if (parser_state.read_buffer[0] != '>') {
-                        try parse_quote_block(&parser_state, &new_entry, allocator);
-                        parser_state.section = .NORMAL_MODE;
-                        continue;
-                    }
-                    const newline_idx: usize = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
-                    const text_start: usize = if (newline_idx > 1 and parser_state.read_buffer[1] == ' ') 2 else 1;
-                    try parser_state.add_quote_text(parser_state.read_buffer[text_start..newline_idx], allocator);
-                    parser_state.strip_section(newline_idx);
-                } else {
-                    const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
-                    try parse_section(&parser_state, newline_idx, &new_entry, allocator);
-                    parser_state.strip_section(newline_idx);
-                    parser_state.strip_newlines();
-                }
-            }
-        }
-
-        if (parser_state.section == .QUOTE_BLOCK) {
-            if (parser_state.used > 0 and parser_state.read_buffer[0] == '>') {
-                const text_start: usize = if (parser_state.used > 1 and parser_state.read_buffer[1] == ' ') 2 else 1;
-                try parser_state.add_quote_text(parser_state.read_buffer[text_start..parser_state.used], allocator);
-            }
-            try parse_quote_block(&parser_state, &new_entry, allocator);
-        }
-
-        if (parser_state.has_toc) try create_toc(&parser_state, &new_entry, allocator);
-        entries = try allocator.realloc(entries, entries.len + 1);
-        entries[entries.len - 1] = new_entry;
+test "create_entries records complete formatted headings once with matching TOC anchors" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    try markdown.dir.writeFile(io, .{
+        .sub_path = "headings.md",
+        .data = "---\nname: Headings\ntoc: true\n---\n# Before **bold _nested_** after\nParagraph with *emphasis*.\n## Visit [Example](https://example.com) today\n### Last\n",
+    });
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
     }
+    try std.testing.expectEqual(@as(usize, 1), posts.len);
+    try std.testing.expectEqualStrings(
+        "<h1 id=\"header-0\">Before <span class=\"bold\">bold <span class=\"italic\">nested</span></span> after</h1>\n" ++
+            "<p>Paragraph with <span class=\"italic\">emphasis</span>.</p>\n" ++
+            "<h2 id=\"header-1\">Visit \n<a href=\"https://example.com\">Example</a>\n today</h2>\n" ++
+            "<h3 id=\"header-2\">Last</h3>\n",
+        posts[0].content,
+    );
+    try std.testing.expectEqualStrings(
+        "<nav class=\"table-of-contents\" aria-label=\"Table of contents\">\n" ++
+            "<h2>Table of Contents</h2>\n<ol>\n" ++
+            "<li><a href=\"#header-0\">Before **bold _nested_** after</a></li>\n" ++
+            "<li><a href=\"#header-1\">Visit [Example](https://example.com) today</a></li>\n" ++
+            "<li><a href=\"#header-2\">Last</a></li>\n" ++
+            "</ol>\n</nav>",
+        posts[0].table_of_contents,
+    );
+}
 
-    return entries;
+fn test_create_entries_allocations(allocator: Allocator, markdown_dir: Dir, io: Io) !void {
+    // Allocating writers report allocation failures as WriteFailed; the testing
+    // utility expects OutOfMemory for the injected allocator failure.
+    const posts = create_entries(markdown_dir, io, allocator) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => return err,
+    };
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqual(@as(usize, 2), posts.len);
+}
+
+test "create_entries cleans up each allocation failure including previously parsed entries" {
+    const io = std.testing.io;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    const data = "---\nname: Post\ntoc: true\n---\n# Heading\nBody\n";
+    try markdown.dir.writeFile(io, .{ .sub_path = "first.md", .data = data });
+    try markdown.dir.writeFile(io, .{ .sub_path = "second.md", .data = data });
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, test_create_entries_allocations, .{ markdown.dir, io });
+}
+
+test "create_entries propagates parse and read errors while freeing partial state" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    const cases = [_]struct { data: []const u8, err: anyerror }{
+        .{ .data = "---\nname: Partial\n", .err = error.FailedToParseMetadata },
+        .{ .data = "---\nname: Partial\n---\n# Heading\n```zig\nconst x = 1;\n", .err = error.EndOfCodeBlockNotFound },
+        .{ .data = "---\nname: Partial\n---\n# Heading\n###\n", .err = error.InvalidLine },
+    };
+    for (cases) |case| {
+        try markdown.dir.writeFile(io, .{ .sub_path = "partial.md", .data = case.data });
+        try std.testing.expectError(case.err, create_entries(markdown.dir, io, allocator));
+    }
 }
 
 test "create_entries preserves quote text and following paragraphs" {
@@ -1029,11 +652,11 @@ test "create_entries parses each file independently" {
     for (posts) |post| {
         if (eql(u8, post.slug, "first")) {
             try std.testing.expectEqualStrings("First", post.name);
-            try std.testing.expectEqualStrings("<p class=\"post-date\">October 1, 2026</p>\n<h1>First heading</h1>\n<p>First body.</p>\n", post.content);
+            try std.testing.expectEqualStrings("<p class=\"post-date\">October 1, 2026</p>\n<h1 id=\"header-0\">First heading</h1>\n<p>First body.</p>\n", post.content);
         } else {
             try std.testing.expectEqualStrings("second", post.slug);
             try std.testing.expectEqualStrings("Second", post.name);
-            try std.testing.expectEqualStrings("<p class=\"post-date\">January 1, 1970 at 00:00:00 UTC</p>\n<h2>Second heading</h2>\n<p>Second body.</p>\n", post.content);
+            try std.testing.expectEqualStrings("<p class=\"post-date\">January 1, 1970 at 00:00:00 UTC</p>\n<h2 id=\"header-0\">Second heading</h2>\n<p>Second body.</p>\n", post.content);
         }
     }
     try expect(!eql(u8, posts[0].slug, posts[1].slug));
