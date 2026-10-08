@@ -33,9 +33,3 @@ pub fn main(init: std.process.Init) !void {
     try std.Io.File.stdout().writeStreamingAll(init.io, "Hello, World!\n");
 }
 ```
-
-
-In my own time, I've been slowly moving down the tech stack.
-I've moved from TypeScript and Python to Go, then C, and now Zig.
-It's been an enjoyable adventure, and I plan to explore embedded systems next,
-now that I've got my hands on an STM32 microcontroller.
