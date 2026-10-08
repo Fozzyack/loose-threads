@@ -1,9 +1,7 @@
 const std = @import("std");
 const log = @import("log.zig");
-const entries = @import("entries.zig");
-const parser = @import("parser/parser.zig");
-const assets = @import("assets.zig");
-const template = @import("templates.zig");
+const reset_public = @import("generate_site.zig").reset_public;
+const generate_site = @import("generate_site.zig").generate_site;
 
 const Dir = std.Io.Dir;
 
@@ -12,34 +10,10 @@ const Dir = std.Io.Dir;
 pub fn main(init: std.process.Init) !void {
     log.init(init.io);
 
-    Dir.cwd().deleteTree(init.io, "public") catch |err| {
-        if (err != error.FileNotFound) return err;
-    };
-    try Dir.cwd().createDir(init.io, "public", .default_dir);
-
-    const public_dir = try Dir.cwd().openDir(init.io, "public", .{ .iterate = true });
-    defer public_dir.close(init.io);
-
-    const markdown_dir = try Dir.cwd().openDir(init.io, "markdown", .{ .iterate = true });
-    defer markdown_dir.close(init.io);
-
-    const static_dir = try Dir.cwd().openDir(init.io, "static", .{ .iterate = true });
-    defer static_dir.close(init.io);
-    try assets.copy_assets(static_dir, markdown_dir, public_dir, init.io, init.arena.allocator());
-
-    const templates_dir = try Dir.cwd().openDir(init.io, "templates", .{ .iterate = true });
-    defer templates_dir.close(init.io);
-
-    const posts: []entries.Entry = try parser.create_entries(markdown_dir, init.io, init.arena.allocator());
-    defer init.arena.allocator().free(posts);
-
-    try template.create_homepage(posts, templates_dir, public_dir, init.io, init.arena.allocator());
-    try template.create_posts(posts, templates_dir, public_dir, init.io, init.arena.allocator());
+    const public_dir = try reset_public(init.io);
+    try generate_site(public_dir, init.io, init.arena.allocator());
 }
 
 test {
-    _ = entries;
-    _ = parser;
-    _ = assets;
-    _ = template;
+    _ = @import("generate_site.zig");
 }
