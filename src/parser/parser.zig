@@ -1,5 +1,5 @@
 const std = @import("std");
-const log = @import("../log.zig");
+const print = @import("../log.zig").print;
 const Entry = @import("../entries.zig").Entry;
 const FileParserState = @import("state.zig").FileParserState;
 const blocks = @import("blocks.zig");
@@ -31,7 +31,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         var file = try markdown_dir.openFile(io, entry.path, .{});
         defer file.close(io);
 
-        try log.print("parsing ... {s}\n", .{entry.path});
+        try print("(md) parsing ... {s}\n", .{entry.path});
 
         var parser_state: FileParserState = .{ .file = file };
         defer parser_state.deinit(allocator);
