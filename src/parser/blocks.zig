@@ -4,7 +4,8 @@ const highlight = @import("../highlight.zig");
 const FileParserState = @import("state.zig").FileParserState;
 const BlockQuoteType = @import("state.zig").BlockQuoteType;
 const Section = @import("state.zig").Section;
-const parse_paragraph = @import("paragraph.zig").parse_paragraph;
+const ListType = @import("state.zig").ListType;
+const flush = @import("flush.zig");
 const parse_inline = @import("inline.zig").parse_inline;
 const Io = std.Io;
 const mem = std.mem;
@@ -12,21 +13,11 @@ const eql = mem.eql;
 const Allocator = mem.Allocator;
 const expect = std.testing.expect;
 
-/// Closes the current list before another block or at the end of a file.
-pub fn close_list(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
-    switch (parser_state.list_type) {
-        .none => return,
-        .unordered => try entry.add_content("</ul>\n", allocator),
-        .ordered => try entry.add_content("</ol>\n", allocator),
-    }
-    parser_state.list_type = .none;
-}
-
 /// Renders a block line, buffering ordinary text until its paragraph ends.
 pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
     const section = mem.trimEnd(u8, parser_state.read_buffer[0..section_end], "\r");
     if (section.len == 0) return;
-    var list_type: @import("state.zig").ListType = .none;
+    var list_type: ListType = .none;
     var text_start: usize = 0;
     if (section.len >= 2 and section[0] == '-' and section[1] == ' ') {
         list_type = .unordered;
@@ -40,9 +31,9 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         }
     }
     if (list_type != .none) {
-        try parse_paragraph(parser_state, entry, allocator);
+        try flush.flush_paragraph(parser_state, entry, allocator);
         if (parser_state.list_type != list_type) {
-            try close_list(parser_state, entry, allocator);
+            try flush.close_list(parser_state, entry, allocator);
             try entry.add_content(if (list_type == .unordered) "<ul>\n" else "<ol>\n", allocator);
             parser_state.list_type = list_type;
         }
@@ -54,14 +45,14 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         try entry.add_content(item.written(), allocator);
         return;
     }
-    try close_list(parser_state, entry, allocator);
+    try flush.close_list(parser_state, entry, allocator);
     if (eql(u8, section, "---")) {
-        try parse_paragraph(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry, allocator);
         try entry.add_content("<hr>\n", allocator);
         return;
     }
     if (section[0] == '>' and (section.len == 1 or section[1] == ' ')) {
-        try parse_paragraph(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry, allocator);
         blk: {
             if (parser_state.section != .QUOTE_BLOCK) {
                 parser_state.block_quote_type = .NONE;
@@ -79,7 +70,7 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         return;
     }
     if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
-        try parse_paragraph(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry, allocator);
         if (parser_state.section != .QUOTE_BLOCK) {
             const language = std.mem.trim(u8, section[3..], " \t\r");
             try parser_state.change_language(language);
@@ -97,7 +88,7 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
     if (count > 0 and section[count] == ' ') {
         is_header = true;
         count += 1;
-        if (parser_state.paragraph.len != 0) try parse_paragraph(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry, allocator);
         const header = try std.fmt.allocPrint(allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
         defer allocator.free(header);
         try entry.add_content(header, allocator);
@@ -165,8 +156,7 @@ fn test_parse_section(section: []const u8, entry: *Entry, allocator: Allocator) 
     @memcpy(state.read_buffer[0..section.len], section);
     state.used = section.len;
     try parse_section(&state, section.len, entry, allocator);
-    try parse_paragraph(&state, entry, allocator);
-    try close_list(&state, entry, allocator);
+    try flush.flush_blocks(&state, entry, allocator);
 }
 
 test "parse_section with header" {

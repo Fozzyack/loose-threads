@@ -4,7 +4,7 @@ const Entry = @import("../entries.zig").Entry;
 const FileParserState = @import("state.zig").FileParserState;
 const blocks = @import("blocks.zig");
 const parse_metadata = @import("metadata.zig").parse_metadata;
-const parse_paragraph = @import("paragraph.zig").parse_paragraph;
+const flush_blocks = @import("flush.zig").flush_blocks;
 const create_toc = @import("toc.zig").create_toc;
 const Io = std.Io;
 const Dir = Io.Dir;
@@ -80,8 +80,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
                     const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
                     try blocks.parse_section(&parser_state, newline_idx, &new_entry, allocator);
                     if (newline_idx + 1 < parser_state.used and parser_state.read_buffer[newline_idx + 1] == '\n') {
-                        try parse_paragraph(&parser_state, &new_entry, allocator);
-                        try blocks.close_list(&parser_state, &new_entry, allocator);
+                        try flush_blocks(&parser_state, &new_entry, allocator);
                     }
                     parser_state.strip_section(newline_idx);
                     parser_state.strip_newlines();
@@ -92,6 +91,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         if (parser_state.section == .NORMAL_MODE and parser_state.used > 0) {
             try blocks.parse_section(&parser_state, parser_state.used, &new_entry, allocator);
             parser_state.used = 0;
+            if (parser_state.section == .CODE_BLOCK) return error.EndOfCodeBlockNotFound;
         }
 
         if (parser_state.section == .QUOTE_BLOCK) {
@@ -102,8 +102,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
             try blocks.parse_quote_block(&parser_state, &new_entry, allocator);
         }
 
-        try parse_paragraph(&parser_state, &new_entry, allocator);
-        try blocks.close_list(&parser_state, &new_entry, allocator);
+        try flush_blocks(&parser_state, &new_entry, allocator);
 
         if (parser_state.has_toc) try create_toc(&parser_state, &new_entry, allocator);
         entries = try allocator.realloc(entries, entries.len + 1);
