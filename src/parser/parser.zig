@@ -318,7 +318,7 @@ test "code block integration escapes plain code without stale languages" {
     defer markdown.cleanup();
     try markdown.dir.writeFile(io, .{
         .sub_path = "code.md",
-        .data = "---\nname: Code\n---\n```zig\nconst x = 42;\n```\n```c\n<a> & 42\n```\n```\nconst x = 42;\n```\n",
+        .data = "---\nname: Code\n---\n```zig\nconst x = 42;\n```\n```rust\n<a> & 42\n```\n```\nconst x = 42;\n```\n",
     });
     const posts = try create_entries(markdown.dir, io, allocator);
     defer {
@@ -327,8 +327,35 @@ test "code block integration escapes plain code without stale languages" {
     }
     try std.testing.expectEqualStrings(
         "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-zig.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Zig</span></div><pre>\n<code class=\"language-zig\"><span class=\"tok-keyword\">const</span> x <span class=\"tok-operator\">=</span> <span class=\"tok-number\">42</span>;\n</code></pre></div>\n" ++
-            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-c.svg\" alt=\"\" width=\"20\" height=\"20\"><span>C</span></div><pre>\n<code>&lt;a&gt; &amp; 42\n</code></pre></div>\n" ++
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>rust</span></div><pre>\n<code>&lt;a&gt; &amp; 42\n</code></pre></div>\n" ++
             "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-code.svg\" alt=\"\" width=\"20\" height=\"20\"><span>Code</span></div><pre>\n<code>const x = 42;\n</code></pre></div>\n",
         posts[0].content,
     );
+}
+
+test "code block integration highlights each added language" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { language: []const u8, source: []const u8, fragment: []const u8 }{
+        .{ .language = "python", .source = "return 42", .fragment = "<span class=\"tok-keyword\">return</span>" },
+        .{ .language = "c", .source = "int answer = 42;", .fragment = "<span class=\"tok-type\">int</span>" },
+        .{ .language = "json", .source = "{\"answer\": 42}", .fragment = "<span class=\"tok-field\">\"answer\"</span>" },
+        .{ .language = "sh", .source = "echo 42", .fragment = "<span class=\"tok-function\">echo</span>" },
+        .{ .language = "bash", .source = "echo 42", .fragment = "<span class=\"tok-function\">echo</span>" },
+    };
+    for (cases) |case| {
+        var markdown = std.testing.tmpDir(.{ .iterate = true });
+        defer markdown.cleanup();
+        const data = try std.fmt.allocPrint(allocator, "---\nname: Code\n---\n```{s}\n{s}\n```\nAfter\n", .{ case.language, case.source });
+        defer allocator.free(data);
+        try markdown.dir.writeFile(io, .{ .sub_path = "code.md", .data = data });
+        const posts = try create_entries(markdown.dir, io, allocator);
+        defer {
+            for (posts) |*post| post.deinit(allocator);
+            allocator.free(posts);
+        }
+        try std.testing.expectEqual(@as(usize, 1), posts.len);
+        try std.testing.expect(mem.find(u8, posts[0].content, case.fragment) != null);
+        try std.testing.expect(mem.endsWith(u8, posts[0].content, "<p>After</p>\n"));
+    }
 }

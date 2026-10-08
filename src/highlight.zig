@@ -2,8 +2,14 @@ const std = @import("std");
 const ts = @import("tree_sitter");
 
 extern fn tree_sitter_zig() ?*const ts.TSLanguage;
+extern fn tree_sitter_python() ?*const ts.TSLanguage;
+extern fn tree_sitter_c() ?*const ts.TSLanguage;
+extern fn tree_sitter_json() ?*const ts.TSLanguage;
+extern fn tree_sitter_bash() ?*const ts.TSLanguage;
 
-const TreeSitterParserError = error{ OutOfMemory, ParseFailed, MissingZigGrammar, IncompatibleGrammar, InvalidHighlightQuery, OverlappingErrors, UnknownCapture, CodeBlockTooLarge };
+const TreeSitterParserError = error{ OutOfMemory, ParseFailed, MissingGrammar, IncompatibleGrammar, InvalidHighlightQuery, OverlappingErrors, UnknownCapture, CodeBlockTooLarge };
+
+const Grammar = enum { zig, python, c, json, bash };
 
 fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
     for (text) |byte| {
@@ -16,21 +22,26 @@ fn writeEscaped(writer: *std.Io.Writer, text: []const u8) !void {
     }
 }
 
-/// Writes escaped code, highlighting the currently supported Zig tokens.
+/// Writes escaped code with the selected language's token highlighting.
 /// Unknown or omitted languages are rendered as plain escaped text.
 pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Writer) !void {
-    if (!std.mem.eql(u8, language_name, "zig")) {
+    const grammar: Grammar = if (std.mem.eql(u8, language_name, "zig")) .zig else if (std.mem.eql(u8, language_name, "python")) .python else if (std.mem.eql(u8, language_name, "c")) .c else if (std.mem.eql(u8, language_name, "json")) .json else if (std.mem.eql(u8, language_name, "sh") or std.mem.eql(u8, language_name, "bash")) .bash else {
         try writeEscaped(writer, source);
         return;
-    }
+    };
     if (source.len > std.math.maxInt(u32)) return TreeSitterParserError.CodeBlockTooLarge;
 
     const parser = ts.ts_parser_new() orelse
         return TreeSitterParserError.OutOfMemory;
     defer ts.ts_parser_delete(parser);
 
-    const language = tree_sitter_zig() orelse
-        return TreeSitterParserError.MissingZigGrammar;
+    const language = (switch (grammar) {
+        .zig => tree_sitter_zig(),
+        .python => tree_sitter_python(),
+        .c => tree_sitter_c(),
+        .json => tree_sitter_json(),
+        .bash => tree_sitter_bash(),
+    }) orelse return TreeSitterParserError.MissingGrammar;
 
     if (!ts.ts_parser_set_language(parser, language)) {
         return TreeSitterParserError.IncompatibleGrammar;
@@ -41,7 +52,13 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
 
     const root = ts.ts_tree_root_node(tree);
 
-    const query_source = @embedFile("queries/zig.scm");
+    const query_source = switch (grammar) {
+        .zig => @embedFile("queries/zig.scm"),
+        .python => @embedFile("queries/python.scm"),
+        .c => @embedFile("queries/c.scm"),
+        .json => @embedFile("queries/json.scm"),
+        .bash => @embedFile("queries/bash.scm"),
+    };
     var error_offset: u32 = 0;
     var error_type: ts.TSQueryError = ts.TSQueryErrorNone;
 
@@ -60,6 +77,7 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
 
     ts.ts_query_cursor_exec(cursor, query, root);
     var position: usize = 0;
+    var emitted_start: usize = 0;
     var match: ts.TSQueryMatch = undefined;
     var capture_index: u32 = 0;
 
@@ -74,8 +92,12 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
 
         const capture_name = name[0..name_len];
 
-        // The query deliberately avoids overlapping captures.
-        if (start < position) return TreeSitterParserError.OverlappingErrors;
+        // Whole strings can contain captured interpolation/substitution nodes.
+        // Keep the outer capture, but never silently discard partial overlaps.
+        if (start < position) {
+            if (start >= emitted_start and end <= position) continue;
+            return TreeSitterParserError.OverlappingErrors;
+        }
 
         try writeEscaped(writer, source[position..start]);
 
@@ -100,6 +122,7 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
         else if (std.mem.eql(u8, capture_name, "bracket"))
             "<span class=\"tok-bracket\">"
         else if (std.mem.eql(u8, capture_name, "field")) field: {
+            if (grammar != .zig) break :field "<span class=\"tok-field\">";
             // A method name is also a field; emit only one capture and retain
             // its function color when the field expression is the call target.
             const parent = ts.ts_node_parent(capture.node);
@@ -113,6 +136,7 @@ pub fn render(source: []const u8, language_name: []const u8, writer: *std.Io.Wri
         try writer.writeAll(opening_tag);
         try writeEscaped(writer, source[start..end]);
         try writer.writeAll("</span>");
+        emitted_start = start;
         position = end;
     }
 
@@ -135,11 +159,109 @@ test "render highlights Zig keywords and numbers" {
 }
 
 test "render escapes unknown and omitted languages" {
-    for ([_][]const u8{ "", "c", "unknown" }) |language| {
+    for ([_][]const u8{ "", "rust", "unknown", "<img>&", "Python" }) |language| {
         var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer html.deinit();
         try render("\t<a> & 42\n\n", language, &html.writer);
         try std.testing.expectEqualStrings("\t&lt;a&gt; &amp; 42\n\n", html.written());
+    }
+}
+
+// Removing only our span tags must reproduce the escaped input byte for byte.
+fn expectSourcePreserved(source: []const u8, html: []const u8) !void {
+    var expected: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer expected.deinit();
+    try writeEscaped(&expected.writer, source);
+    var actual: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer actual.deinit();
+    var position: usize = 0;
+    while (position < html.len) {
+        if (std.mem.startsWith(u8, html[position..], "<span class=\"tok-") or
+            std.mem.startsWith(u8, html[position..], "</span>"))
+        {
+            position += (std.mem.findScalar(u8, html[position..], '>') orelse return error.InvalidHtml) + 1;
+        } else {
+            try actual.writer.writeByte(html[position]);
+            position += 1;
+        }
+    }
+    try std.testing.expectEqualStrings(expected.written(), actual.written());
+}
+
+// Even empty input creates the external scanner. Run in ReleaseSafe to catch
+// constructor callback type mismatches before query/highlighting behavior.
+test "external scanner constructors match the runtime callback ABI" {
+    for ([_]?*const ts.TSLanguage{ tree_sitter_python(), tree_sitter_bash() }) |language| {
+        const parser = ts.ts_parser_new() orelse return error.OutOfMemory;
+        defer ts.ts_parser_delete(parser);
+        try std.testing.expect(ts.ts_parser_set_language(parser, language orelse return error.MissingGrammar));
+        const tree = ts.ts_parser_parse_string(parser, null, "", 0) orelse return error.ParseFailed;
+        defer ts.ts_tree_delete(tree);
+        try std.testing.expect(!ts.ts_node_has_error(ts.ts_tree_root_node(tree)));
+    }
+}
+
+test "render highlights Python C JSON and shell while preserving escaped source" {
+    const cases = [_]struct { language: []const u8, source: []const u8, fragments: []const []const u8 }{
+        .{ .language = "python", .source = "def greet():\n\treturn 42, True, \"< & >\" # comment\n", .fragments = &.{
+            "<span class=\"tok-keyword\">def</span>",                "<span class=\"tok-function\">greet</span>",
+            "<span class=\"tok-number\">42</span>",                  "<span class=\"tok-constant\">True</span>",
+            "<span class=\"tok-string\">\"&lt; &amp; &gt;\"</span>", "<span class=\"tok-comment\"># comment</span>",
+        } },
+        .{ .language = "c", .source = "int greet(void) { return 42; } /* < & > */\nconst char *text = \"< & >\";", .fragments = &.{
+            "<span class=\"tok-type\">int</span>",                   "<span class=\"tok-function\">greet</span>",
+            "<span class=\"tok-keyword\">return</span>",             "<span class=\"tok-number\">42</span>",
+            "<span class=\"tok-string\">\"&lt; &amp; &gt;\"</span>", "<span class=\"tok-comment\">/* &lt; &amp; &gt; */</span>",
+        } },
+        .{ .language = "json", .source = "{\"key\": [42, true, false, null, \"< & >\"]}\n", .fragments = &.{
+            "<span class=\"tok-field\">\"key\"</span>",              "<span class=\"tok-number\">42</span>",
+            "<span class=\"tok-constant\">true</span>",              "<span class=\"tok-constant\">null</span>",
+            "<span class=\"tok-string\">\"&lt; &amp; &gt;\"</span>", "<span class=\"tok-bracket\">[</span>",
+        } },
+        .{ .language = "bash", .source = "if true; then\n echo \"< & >\" # comment\nfi\nx=$((42 + 1))\n", .fragments = &.{
+            "<span class=\"tok-keyword\">if</span>",                 "<span class=\"tok-function\">echo</span>",
+            "<span class=\"tok-string\">\"&lt; &amp; &gt;\"</span>", "<span class=\"tok-comment\"># comment</span>",
+            "<span class=\"tok-number\">42</span>",                  "<span class=\"tok-operator\">+</span>",
+        } },
+    };
+    for (cases) |case| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(case.source, case.language, &html.writer);
+        for (case.fragments) |fragment| try std.testing.expect(std.mem.find(u8, html.written(), fragment) != null);
+        try expectSourcePreserved(case.source, html.written());
+    }
+}
+
+test "render keeps nested f-string and shell substitution captures inside whole strings" {
+    const cases = [_]struct { language: []const u8, source: []const u8, string: []const u8 }{
+        .{ .language = "python", .source = "text = f\"< & > {greet(42)} {f'{1 + 2}'}\"\n", .string = "<span class=\"tok-string\">f\"&lt; &amp; &gt; {greet(42)} {f'{1 + 2}'}\"</span>" },
+        .{ .language = "bash", .source = "echo \"< & > $(echo \"$(printf '%s' 42)\") ${value:-$(echo 1)}\"\n", .string = "<span class=\"tok-string\">\"&lt; &amp; &gt; $(echo \"$(printf '%s' 42)\") ${value:-$(echo 1)}\"</span>" },
+    };
+    for (cases) |case| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render(case.source, case.language, &html.writer);
+        try std.testing.expect(std.mem.find(u8, html.written(), case.string) != null);
+        try expectSourcePreserved(case.source, html.written());
+    }
+}
+
+test "render shell aliases identically and accepts empty source for every language" {
+    var bash: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer bash.deinit();
+    var sh: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer sh.deinit();
+    const source = "if true; then echo \"$(echo 42)\"; fi\n";
+    try render(source, "bash", &bash.writer);
+    try render(source, "sh", &sh.writer);
+    try std.testing.expectEqualStrings(bash.written(), sh.written());
+    try expectSourcePreserved(source, sh.written());
+    for ([_][]const u8{ "zig", "python", "c", "json", "sh", "bash", "", "unknown" }) |language| {
+        var html: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer html.deinit();
+        try render("", language, &html.writer);
+        try std.testing.expectEqualStrings("", html.written());
     }
 }
 

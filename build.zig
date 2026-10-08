@@ -28,17 +28,26 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addIncludePath(
         b.path("vendor/tree-sitter/lib/src"),
     );
-    exe.root_module.addIncludePath(
-        b.path("vendor/tree-sitter-zig/src"),
-    );
-
     exe.root_module.addCSourceFiles(.{
-        .files = &.{
-            "vendor/tree-sitter/lib/src/lib.c",
-            "vendor/tree-sitter-zig/src/parser.c",
-        },
+        .files = &.{"vendor/tree-sitter/lib/src/lib.c"},
         .flags = &.{"-std=gnu17"},
     });
+    // Keep each grammar's private headers scoped to its own C sources.
+    inline for (.{ "zig", "python", "c", "json", "bash" }) |grammar| {
+        exe.root_module.addCSourceFiles(.{
+            .root = b.path("vendor/tree-sitter-" ++ grammar ++ "/src"),
+            .files = if (std.mem.eql(u8, grammar, "python") or std.mem.eql(u8, grammar, "bash"))
+                &.{ "parser.c", "scanner.c" }
+            else
+                &.{"parser.c"},
+            // C23 makes scanner create() definitions match the runtime's
+            // create(void) callback type under ReleaseSafe's function sanitizer.
+            .flags = &.{
+                if (std.mem.eql(u8, grammar, "python") or std.mem.eql(u8, grammar, "bash")) "-std=gnu23" else "-std=gnu17",
+                "-Ivendor/tree-sitter-" ++ grammar ++ "/src",
+            },
+        });
+    }
 
     b.installArtifact(exe);
 

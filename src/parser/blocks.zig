@@ -134,7 +134,7 @@ pub fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator
     defer html.deinit();
     const language = parser_state.code_language[0..parser_state.code_language_len];
     const icon = if (eql(u8, language, "zig")) "zig" else if (eql(u8, language, "c")) "c" else if (eql(u8, language, "python")) "python" else "code";
-    const label = if (eql(u8, language, "zig")) "Zig" else if (eql(u8, language, "c")) "C" else if (eql(u8, language, "python")) "Python" else if (language.len == 0) "Code" else language;
+    const label = if (eql(u8, language, "zig")) "Zig" else if (eql(u8, language, "c")) "C" else if (eql(u8, language, "python")) "Python" else if (eql(u8, language, "json")) "JSON" else if (eql(u8, language, "bash")) "Bash" else if (eql(u8, language, "sh")) "Shell" else if (language.len == 0) "Code" else language;
     try html.writer.print("<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>", .{icon});
     // Render the label as escaped plain text, never as markup or an asset path.
     try highlight.render(label, "", &html.writer);
@@ -142,6 +142,14 @@ pub fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator
     // Only known language names are included in HTML attributes.
     try html.writer.writeAll(if (eql(u8, language, "zig"))
         "<pre>\n<code class=\"language-zig\">"
+    else if (eql(u8, language, "python"))
+        "<pre>\n<code class=\"language-python\">"
+    else if (eql(u8, language, "c"))
+        "<pre>\n<code class=\"language-c\">"
+    else if (eql(u8, language, "json"))
+        "<pre>\n<code class=\"language-json\">"
+    else if (eql(u8, language, "sh") or eql(u8, language, "bash"))
+        "<pre>\n<code class=\"language-bash\">"
     else
         "<pre>\n<code>");
     try highlight.render(parser_state.code_block_text, language, &html.writer);
@@ -281,24 +289,28 @@ test "unknown quote markers remain ordinary quote text" {
 
 test "parse_code_block shows Python and safely labels unknown languages" {
     const allocator = std.testing.allocator;
-    const cases = [_]struct { language: []const u8, icon: []const u8, label: []const u8 }{
-        .{ .language = "python", .icon = "python", .label = "Python" },
-        .{ .language = "rust", .icon = "code", .label = "rust" },
-        .{ .language = "<img>&", .icon = "code", .label = "&lt;img&gt;&amp;" },
+    const cases = [_]struct { language: []const u8, icon: []const u8, label: []const u8, class: []const u8 }{
+        .{ .language = "zig", .icon = "zig", .label = "Zig", .class = " class=\"language-zig\"" },
+        .{ .language = "python", .icon = "python", .label = "Python", .class = " class=\"language-python\"" },
+        .{ .language = "c", .icon = "c", .label = "C", .class = " class=\"language-c\"" },
+        .{ .language = "json", .icon = "code", .label = "JSON", .class = " class=\"language-json\"" },
+        .{ .language = "sh", .icon = "code", .label = "Shell", .class = " class=\"language-bash\"" },
+        .{ .language = "bash", .icon = "code", .label = "Bash", .class = " class=\"language-bash\"" },
+        .{ .language = "", .icon = "code", .label = "Code", .class = "" },
+        .{ .language = "rust", .icon = "code", .label = "rust", .class = "" },
+        .{ .language = "<img>&", .icon = "code", .label = "&lt;img&gt;&amp;", .class = "" },
     };
     for (cases) |case| {
         var state: FileParserState = .{ .file = undefined };
         defer state.deinit(allocator);
         try state.change_language(case.language);
-        @memcpy(state.read_buffer[0..5], "hello");
-        try state.add_code_text(5, allocator);
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
         try parse_code_block(&state, &entry, allocator);
         const expected = try std.fmt.allocPrint(
             allocator,
-            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre>\n<code>hello</code></pre></div>\n",
-            .{ case.icon, case.label },
+            "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre>\n<code{s}></code></pre></div>\n",
+            .{ case.icon, case.label, case.class },
         );
         defer allocator.free(expected);
         try std.testing.expectEqualStrings(expected, entry.content);
