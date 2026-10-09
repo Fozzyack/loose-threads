@@ -162,7 +162,14 @@
 .article-page blockquote>*+* {
     margin-top: 1rem;
 }
-
+.article-page img:is(.gif, .image) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 1.5rem auto;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+}
 
 .article-page figure {
     margin-inline: 0;

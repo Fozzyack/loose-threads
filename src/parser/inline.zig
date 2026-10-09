@@ -20,11 +20,11 @@ pub fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: 
                         mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpg") != null or
                         mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpeg") != null or
                         mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".png") != null;
-                        
+
                     const name: []const u8 = section[count + 1 .. tag_idx];
                     const link: []const u8 = section[tag_idx + 2 .. closing_tag_idx];
-                    if(is_gif) {
-                        const tag = try std.fmt.allocPrint(allocator,  "\n<img src=\"{s}\" alt=\"{s}\" class=\"gif\">", .{link, name});
+                    if (is_gif) {
+                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\" class=\"gif\">", .{ link, name });
                         defer allocator.free(tag);
                         try content_writer.writeAll(tag);
                     } else if (is_image) {
@@ -137,7 +137,8 @@ test "parse_inline renders supported image extensions with alt text" {
     for (extensions) |extension| {
         const section = try std.fmt.allocPrint(allocator, "Before [A photo](https://example.com/photo.{s}) after.", .{extension});
         defer allocator.free(section);
-        const html = try std.fmt.allocPrint(allocator, "Before \n<img src=\"https://example.com/photo.{s}\" alt=\"A photo\"> after.", .{extension});
+        const class = if (mem.eql(u8, extension, "gif")) "gif" else "image";
+        const html = try std.fmt.allocPrint(allocator, "Before \n<img src=\"https://example.com/photo.{s}\" alt=\"A photo\" class=\"{s}\"> after.", .{ extension, class });
         defer allocator.free(html);
         var output: Io.Writer.Allocating = .init(allocator);
         defer output.deinit();
