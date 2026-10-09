@@ -15,15 +15,20 @@ pub fn parse_inline(section: []const u8, content_writer: *Io.Writer, allocator: 
                 if (tag_idx + 1 < section.len and section[tag_idx + 1] == '(') {
                     const closing_tag_idx = tag_idx + 1 + (mem.findScalar(u8, section[tag_idx + 1 ..], ')') orelse break :link);
                     try content_writer.writeAll(section[old_count..count]);
+                    const is_gif: bool = mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".gif") != null;
                     const is_image: bool =
                         mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpg") != null or
                         mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".jpeg") != null or
-                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".png") != null or
-                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".gif") != null;
+                        mem.find(u8, section[tag_idx + 1 .. closing_tag_idx], ".png") != null;
+                        
                     const name: []const u8 = section[count + 1 .. tag_idx];
                     const link: []const u8 = section[tag_idx + 2 .. closing_tag_idx];
-                    if (is_image) {
-                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\">", .{ link, name });
+                    if(is_gif) {
+                        const tag = try std.fmt.allocPrint(allocator,  "\n<img src=\"{s}\" alt=\"{s}\" class=\"gif\">", .{link, name});
+                        defer allocator.free(tag);
+                        try content_writer.writeAll(tag);
+                    } else if (is_image) {
+                        const tag = try std.fmt.allocPrint(allocator, "\n<img src=\"{s}\" alt=\"{s}\" class=\"image\">", .{ link, name });
                         defer allocator.free(tag);
                         try content_writer.writeAll(tag);
                     } else {
