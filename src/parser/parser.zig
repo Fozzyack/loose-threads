@@ -96,7 +96,7 @@ fn parse_file_worker(markdown_dir: Dir, file_path: []const u8, entries: *[]Entry
     var file = try Dir.openFile(markdown_dir, io, file_path, .{});
     defer file.close(io);
 
-    const entry = try parse_file(file, io, allocator);
+    var entry = try parse_file(file, io, allocator);
     errdefer entry.deinit(allocator);
 
     try parser_mutex.lock(io);
