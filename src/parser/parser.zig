@@ -89,16 +89,16 @@ fn parse_file(file: File, io: Io, allocator: Allocator) !Entry {
     return new_entry;
 }
 
-var parser_mutex: Mutex = .{};
+var parser_mutex: Mutex = .init;
 fn parse_file_worker(markdown_dir: Dir, file_name: []u8, entries: []Entry, io: Io, allocator: Allocator) !void {
     var file = try Dir.openFile(markdown_dir, io, file_name, .{});
     defer file.close(io);
 
     const entry = try parse_file(file, io, allocator);
-    parser_mutex.lock(io);
+    try parser_mutex.lock(io);
+    defer parser_mutex.unlock(io);
     entries = allocator.realloc(entries, entries.len + 1);
     entries[entries.len - 1] = entry;
-    parser_mutex.unlock(io);
 }
 
 /// Recursively reads `.md` files into entries using their metadata, appending a
@@ -119,10 +119,10 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
 
     while (try walker.next(io)) |walked_entry| {
         if (walked_entry.kind != .file) continue;
-        if (mem.find(u8, walked_entry.basename, ".md") != null) continue;
+        if (!mem.find(u8, walked_entry.basename, ".md")) continue;
 
         // concurrency here
-        threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, entries, io, allocator });
+        threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, &entries, io, allocator });
         count += 1;
     }
 
