@@ -90,15 +90,17 @@ fn parse_file(file: File, io: Io, allocator: Allocator) !Entry {
 }
 
 var parser_mutex: Mutex = .init;
-fn parse_file_worker(markdown_dir: Dir, file_name: []u8, entries: []Entry, io: Io, allocator: Allocator) !void {
+fn parse_file_worker(markdown_dir: Dir, file_name: []u8, entries: *[]Entry, io: Io, allocator: Allocator) !void {
     var file = try Dir.openFile(markdown_dir, io, file_name, .{});
     defer file.close(io);
 
     const entry = try parse_file(file, io, allocator);
+    errdefer entry.deinit(allocator);
+
     try parser_mutex.lock(io);
     defer parser_mutex.unlock(io);
-    entries = allocator.realloc(entries, entries.len + 1);
-    entries[entries.len - 1] = entry;
+    entries.* = allocator.realloc(entries, entries.*.len + 1);
+    entries.*[entries.len - 1] = entry;
 }
 
 /// Recursively reads `.md` files into entries using their metadata, appending a
