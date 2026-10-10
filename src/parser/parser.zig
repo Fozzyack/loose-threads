@@ -6,6 +6,8 @@ const blocks = @import("blocks.zig");
 const parse_metadata = @import("metadata.zig").parse_metadata;
 const flush_blocks = @import("flush.zig").flush_blocks;
 const create_toc = @import("toc.zig").create_toc;
+const Thread = std.Thread;
+const Mutex = std.Io.Mutex;
 const Io = std.Io;
 const Dir = Io.Dir;
 const File = Io.File;
@@ -87,29 +89,45 @@ fn parse_file(file: File, io: Io, allocator: Allocator) !Entry {
     return new_entry;
 }
 
+var parser_mutex: Mutex = .{};
+fn parse_file_worker(markdown_dir: Dir, file_name: []u8, entries: []Entry, io: Io, allocator: Allocator) !void {
+    var file = try Dir.openFile(markdown_dir, io, file_name, .{});
+    defer file.close(io);
+
+    const entry = try parse_file(file, io, allocator);
+    parser_mutex.lock(io);
+    entries = allocator.realloc(entries, entries.len + 1);
+    entries[entries.len - 1] = entry;
+    parser_mutex.unlock(io);
+}
+
 /// Recursively reads `.md` files into entries using their metadata, appending a
 /// post-date paragraph and rendered newline-ended sections.
 /// The caller owns the returned slice and must deinitialize each entry and free
 /// the slice using `allocator`.
 pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry {
-    var walker = try Dir.walk(markdown_dir, allocator);
+    var walker = try markdown_dir.walk(allocator);
     defer walker.deinit();
-
     var entries: []Entry = &.{};
     errdefer {
         for (entries) |*entry| entry.deinit(allocator);
         allocator.free(entries);
     }
 
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!mem.endsWith(u8, entry.basename, ".md")) continue;
-        var file = try markdown_dir.openFile(io, entry.path, .{});
-        defer file.close(io);
-        try print("(md) parsing ... {s}\n", .{entry.path});
-        const new_entry: Entry = try parse_file(file, io, allocator);
-        entries = try allocator.realloc(entries, entries.len + 1);
-        entries[entries.len - 1] = new_entry;
+    var threads: [16]Thread = undefined;
+    var count = 0;
+
+    while (try walker.next(io)) |walked_entry| {
+        if (walked_entry.kind != .file) continue;
+        if (mem.find(u8, walked_entry.basename, ".md") != null) continue;
+
+        // concurrency here
+        threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, entries, io, allocator });
+        count += 1;
+    }
+
+    for (&threads) |*thread| {
+        thread.join();
     }
 
     return entries;
