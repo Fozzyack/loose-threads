@@ -31,7 +31,10 @@ pub fn generate_site(public_dir: Dir, io: Io, allocator: Allocator) !void {
 
     // parse markdown
     const posts: []entries.Entry = try parser.create_entries(markdown_dir, io, allocator);
-    defer allocator.free(posts);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
 
     // generate html
     try template.create_homepage(posts, templates_dir, public_dir, io, allocator);
