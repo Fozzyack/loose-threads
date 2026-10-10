@@ -90,8 +90,10 @@ fn parse_file(file: File, io: Io, allocator: Allocator) !Entry {
 }
 
 var parser_mutex: Mutex = .init;
-fn parse_file_worker(markdown_dir: Dir, file_name: []u8, entries: *[]Entry, io: Io, allocator: Allocator) !void {
-    var file = try Dir.openFile(markdown_dir, io, file_name, .{});
+fn parse_file_worker(markdown_dir: Dir, file_path: []const u8, entries: *[]Entry, io: Io, allocator: Allocator) !void {
+    defer allocator.free(file_path);
+
+    var file = try Dir.openFile(markdown_dir, io, file_path, .{});
     defer file.close(io);
 
     const entry = try parse_file(file, io, allocator);
@@ -126,8 +128,13 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         if (walked_entry.kind != .file) continue;
         if (!mem.endsWith(u8, walked_entry.basename, ".md")) continue;
 
+        const file_path = allocator.dupe(u8, walked_entry.basename);
+
         // concurrency here
-        threads[count % 16] = try Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, &entries, io, allocator });
+        threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, file_path, &entries, io, allocator }) catch |err| {
+            allocator.free(file_path);
+            return err;
+        };
         count += 1;
         if (count == threads.len) {
             for (threads[0..count]) |thread| thread.join();
