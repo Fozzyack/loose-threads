@@ -117,6 +117,17 @@ pub const FileParserState = struct {
         @memcpy(self.block_quote_text[prev_len..], output.written());
     }
 
+    pub fn add_quote_break(self: *FileParserState, allocator: Allocator) !void {
+        const previous_len = self.block_quote_text.len;
+        const html = "<br>\n";
+
+        self.block_quote_text = try allocator.realloc(
+            self.block_quote_text,
+            previous_len + html.len,
+        );
+        @memcpy(self.block_quote_text[previous_len..], html);
+    }
+
     pub fn deinit_block_text(self: *FileParserState, allocator: Allocator) void {
         allocator.free(self.block_quote_text);
         self.block_quote_text = &.{};

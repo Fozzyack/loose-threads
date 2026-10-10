@@ -56,7 +56,12 @@ fn parse_file(file: File, io: Io, allocator: Allocator) !Entry {
                 }
                 const newline_idx: usize = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
                 const text_start: usize = if (newline_idx > 1 and parser_state.read_buffer[1] == ' ') 2 else 1;
-                try parser_state.add_quote_text(parser_state.read_buffer[text_start..newline_idx], allocator);
+                const text = parser_state.read_buffer[text_start..newline_idx];
+                if (mem.trim(u8, text, " \t\r").len == 0) {
+                    try parser_state.add_quote_break(allocator);
+                } else {
+                    try parser_state.add_quote_text(parser_state.read_buffer[text_start..newline_idx], allocator);
+                }
                 parser_state.strip_section(newline_idx);
             } else {
                 const newline_idx = mem.findScalar(u8, parser_state.read_buffer[0..parser_state.used], '\n') orelse break;
