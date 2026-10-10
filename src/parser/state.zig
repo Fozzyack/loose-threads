@@ -52,6 +52,7 @@ pub const ListType = enum { none, unordered, ordered };
 
 /// Buffered input and allocator-owned data for one Markdown file.
 pub const FileParserState = struct {
+    allocator: Allocator,
     file: File,
     read_buffer: [8192]u8 = undefined,
     used: usize = 0,
@@ -84,52 +85,52 @@ pub const FileParserState = struct {
         self.used += bytes_read;
     }
 
-    pub fn add_paragraph(self: *FileParserState, text: []const u8, allocator: Allocator) !void {
+    pub fn add_paragraph(self: *FileParserState, text: []const u8) !void {
         const prev_len: usize = self.paragraph.len;
-        self.paragraph = try allocator.realloc(self.paragraph, prev_len + text.len);
+        self.paragraph = try self.allocator.realloc(self.paragraph, prev_len + text.len);
         @memcpy(self.paragraph[prev_len..], text);
     }
 
-    pub fn deinit_paragraph(self: *FileParserState, allocator: Allocator) void {
-        allocator.free(self.paragraph);
+    pub fn deinit_paragraph(self: *FileParserState) void {
+        self.allocator.free(self.paragraph);
         self.paragraph = &.{};
     }
 
-    pub fn add_code_text(self: *FileParserState, idx: usize, allocator: Allocator) !void {
+    pub fn add_code_text(self: *FileParserState, idx: usize) !void {
         const prev_len: usize = self.code_block_text.len;
-        self.code_block_text = try allocator.realloc(self.code_block_text, prev_len + idx);
+        self.code_block_text = try self.allocator.realloc(self.code_block_text, prev_len + idx);
         @memcpy(self.code_block_text[prev_len..], self.read_buffer[0..idx]);
     }
 
-    pub fn deinit_code_text(self: *FileParserState, allocator: Allocator) void {
-        allocator.free(self.code_block_text);
+    pub fn deinit_code_text(self: *FileParserState) void {
+        self.allocator.free(self.code_block_text);
         self.code_block_text = &.{};
     }
 
-    pub fn add_quote_text(self: *FileParserState, text: []const u8, allocator: Allocator) !void {
+    pub fn add_quote_text(self: *FileParserState, text: []const u8) !void {
         const prev_len: usize = self.block_quote_text.len;
 
-        var output: Io.Writer.Allocating = .init(allocator);
+        var output: Io.Writer.Allocating = .init(self.allocator);
         defer output.deinit();
         try highlight.render(text, "", &output.writer);
 
-        self.block_quote_text = try allocator.realloc(self.block_quote_text, prev_len + output.written().len);
+        self.block_quote_text = try self.allocator.realloc(self.block_quote_text, prev_len + output.written().len);
         @memcpy(self.block_quote_text[prev_len..], output.written());
     }
 
-    pub fn add_quote_break(self: *FileParserState, allocator: Allocator) !void {
+    pub fn add_quote_break(self: *FileParserState) !void {
         const previous_len = self.block_quote_text.len;
         const html = "<br>\n";
 
-        self.block_quote_text = try allocator.realloc(
+        self.block_quote_text = try self.allocator.realloc(
             self.block_quote_text,
             previous_len + html.len,
         );
         @memcpy(self.block_quote_text[previous_len..], html);
     }
 
-    pub fn deinit_block_text(self: *FileParserState, allocator: Allocator) void {
-        allocator.free(self.block_quote_text);
+    pub fn deinit_block_text(self: *FileParserState) void {
+        self.allocator.free(self.block_quote_text);
         self.block_quote_text = &.{};
     }
 
@@ -142,11 +143,11 @@ pub const FileParserState = struct {
         self.code_language_len = language.len;
     }
 
-    pub fn add_header(self: *FileParserState, header: []const u8, allocator: Allocator) !void {
+    pub fn add_header(self: *FileParserState, header: []const u8) !void {
         const prev_len = self.headers.len;
-        const owned_header = try allocator.dupe(u8, header);
-        errdefer allocator.free(owned_header);
-        self.headers = try allocator.realloc(self.headers, prev_len + 1);
+        const owned_header = try self.allocator.dupe(u8, header);
+        errdefer self.allocator.free(owned_header);
+        self.headers = try self.allocator.realloc(self.headers, prev_len + 1);
         self.headers[prev_len] = owned_header;
         self.header_count += 1;
     }
@@ -166,15 +167,15 @@ pub const FileParserState = struct {
         self.used -= (idx + 1);
     }
 
-    pub fn deinit(self: *FileParserState, allocator: Allocator) void {
-        if (self.code_block_text.len != 0) allocator.free(self.code_block_text);
-        if (self.block_quote_text.len != 0) allocator.free(self.block_quote_text);
-        if (self.paragraph.len != 0) allocator.free(self.paragraph);
+    pub fn deinit(self: *FileParserState) void {
+        if (self.code_block_text.len != 0) self.allocator.free(self.code_block_text);
+        if (self.block_quote_text.len != 0) self.allocator.free(self.block_quote_text);
+        if (self.paragraph.len != 0) self.allocator.free(self.paragraph);
         if (self.headers.len > 0) {
             for (self.headers) |header| {
-                allocator.free(header);
+                self.allocator.free(header);
             }
-            allocator.free(self.headers);
+            self.allocator.free(self.headers);
         }
     }
 };
@@ -196,10 +197,10 @@ pub fn strip_newline(buffer: []u8, used: *usize) void {
 }
 
 fn test_add_headers(allocator: Allocator) !void {
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
-    try state.add_header("First heading", allocator);
-    try state.add_header("Second heading", allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
+    try state.add_header("First heading");
+    try state.add_header("Second heading");
     try std.testing.expectEqual(@as(u8, 2), state.header_count);
     try std.testing.expectEqualStrings("First heading", state.headers[0]);
     try std.testing.expectEqualStrings("Second heading", state.headers[1]);
@@ -211,40 +212,40 @@ test "FileParserState add_header is safe at every allocation failure" {
 
 test "FileParserState add_code_text appends only the requested buffer prefix" {
     const allocator = std.testing.allocator;
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
 
     @memcpy(state.read_buffer[0..12], "first\nunused");
-    try state.add_code_text(6, allocator);
+    try state.add_code_text(6);
     try std.testing.expectEqualStrings("first\n", state.code_block_text);
 
     @memcpy(state.read_buffer[0..13], "second\nunused");
-    try state.add_code_text(7, allocator);
+    try state.add_code_text(7);
     try std.testing.expectEqualStrings("first\nsecond\n", state.code_block_text);
     try std.testing.expectEqualStrings("second\nunused", state.read_buffer[0..13]);
 }
 
 test "FileParserState add_code_text accepts zero bytes" {
     const allocator = std.testing.allocator;
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
 
-    try state.add_code_text(0, allocator);
+    try state.add_code_text(0);
     try std.testing.expectEqual(@as(usize, 0), state.code_block_text.len);
 
     @memcpy(state.read_buffer[0..4], "code");
-    try state.add_code_text(4, allocator);
-    try state.add_code_text(0, allocator);
+    try state.add_code_text(4);
+    try state.add_code_text(0);
     try std.testing.expectEqualStrings("code", state.code_block_text);
 }
 
 test "FileParserState add_code_text copies a full read buffer" {
     const allocator = std.testing.allocator;
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
 
     @memset(&state.read_buffer, 'x');
-    try state.add_code_text(state.read_buffer.len, allocator);
+    try state.add_code_text(state.read_buffer.len);
     try std.testing.expectEqualSlices(u8, &state.read_buffer, state.code_block_text);
 }
 
@@ -252,50 +253,50 @@ test "FileParserState add_code_text preserves existing text on allocation failur
     var storage: [4]u8 = undefined;
     var fixed_buffer: std.heap.FixedBufferAllocator = .init(&storage);
     const allocator = fixed_buffer.allocator();
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
 
     @memcpy(state.read_buffer[0..4], "code");
-    try state.add_code_text(4, allocator);
-    try std.testing.expectError(error.OutOfMemory, state.add_code_text(1, allocator));
+    try state.add_code_text(4);
+    try std.testing.expectError(error.OutOfMemory, state.add_code_text(1));
     try std.testing.expectEqualStrings("code", state.code_block_text);
 }
 
 test "FileParserState deinit_code_text clears text and allows reuse" {
     const allocator = std.testing.allocator;
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
 
     @memcpy(state.read_buffer[0..5], "first");
-    try state.add_code_text(5, allocator);
-    state.deinit_code_text(allocator);
+    try state.add_code_text(5);
+    state.deinit_code_text();
     try std.testing.expectEqual(@as(usize, 0), state.code_block_text.len);
 
     @memcpy(state.read_buffer[0..6], "second");
-    try state.add_code_text(6, allocator);
+    try state.add_code_text(6);
     try std.testing.expectEqualStrings("second", state.code_block_text);
 }
 
 test "FileParserState deinit_code_text accepts empty and already cleared text" {
     const allocator = std.testing.allocator;
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
 
-    state.deinit_code_text(allocator);
+    state.deinit_code_text();
     @memcpy(state.read_buffer[0..4], "code");
-    try state.add_code_text(4, allocator);
-    state.deinit_code_text(allocator);
-    state.deinit_code_text(allocator);
+    try state.add_code_text(4);
+    state.deinit_code_text();
+    state.deinit_code_text();
     try std.testing.expectEqual(@as(usize, 0), state.code_block_text.len);
 }
 
 test "FileParserState deinit frees code text and accepts empty text" {
     const allocator = std.testing.allocator;
-    var empty: FileParserState = .{ .file = undefined };
-    empty.deinit(allocator);
+    var empty: FileParserState = .{ .allocator = allocator, .file = undefined };
+    empty.deinit();
 
-    var populated: FileParserState = .{ .file = undefined };
-    defer populated.deinit(allocator);
+    var populated: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer populated.deinit();
     populated.code_block_text = try allocator.dupe(u8, "allocated code\n");
     // std.testing.allocator reports a leak if deinit does not free this text.
 }

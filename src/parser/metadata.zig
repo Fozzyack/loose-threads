@@ -16,7 +16,7 @@ const expect = std.testing.expect;
 /// or out-of-range timestamps return `error.InvalidMetadataTimestamp`.
 /// Missing separators or newlines return `error.ErrorParsingMetadata`; unknown keys
 /// return `error.InvalidMetadataFlagFound`. Fields already stored remain on failure.
-pub fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry: *Entry, allocator: Allocator) !void {
+pub fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry: *Entry) !void {
     var start: usize = 0;
     var buffer: []u8 = parser_state.read_buffer[4 .. metadata_end + 1];
     while (start < buffer.len) {
@@ -24,16 +24,16 @@ pub fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry
         const newline_idx = start + (mem.findScalar(u8, buffer[start..], '\n') orelse return error.ErrorParsingMetadata);
         if (eql(u8, buffer[start..separator_idx], "name") or eql(u8, buffer[start..separator_idx], "name ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_name(value, allocator);
+            try entry.add_name(value, parser_state.allocator);
         } else if (eql(u8, buffer[start..separator_idx], "description") or eql(u8, buffer[start..separator_idx], "description ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_description(value, allocator);
+            try entry.add_description(value, parser_state.allocator);
         } else if (eql(u8, buffer[start..separator_idx], "slug") or eql(u8, buffer[start..separator_idx], "slug ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_slug(value, allocator);
+            try entry.add_slug(value, parser_state.allocator);
         } else if (eql(u8, buffer[start..separator_idx], "date") or eql(u8, buffer[start..separator_idx], "date ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
-            try entry.add_date(value, allocator);
+            try entry.add_date(value, parser_state.allocator);
         } else if (eql(u8, buffer[start..separator_idx], "timestamp") or eql(u8, buffer[start..separator_idx], "timestamp ")) {
             const value = mem.trim(u8, buffer[separator_idx + 1 .. newline_idx], " ");
             try entry.add_timestamp(value);
@@ -43,25 +43,25 @@ pub fn parse_metadata(parser_state: *FileParserState, metadata_end: usize, entry
         } else return error.InvalidMetadataFlagFound;
         start = newline_idx + 1;
     }
-    try entry.render_date(allocator);
+    try entry.render_date(parser_state.allocator);
 }
 
 fn test_parse_metadata(metadata: []const u8, entry: *Entry, allocator: Allocator) !void {
-    var state: FileParserState = .{ .file = undefined };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+    defer state.deinit();
     @memcpy(state.read_buffer[0..4], "---\n");
     @memcpy(state.read_buffer[4 .. 4 + metadata.len], metadata);
     state.used = 4 + metadata.len;
-    try parse_metadata(&state, state.used - 1, entry, allocator);
+    try parse_metadata(&state, state.used - 1, entry);
 }
 
 fn test_append_body(entry: *Entry, allocator: Allocator) !void {
     const section = "Welcome to my blog.";
-    var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined, .section = .NORMAL_MODE };
+    defer state.deinit();
     @memcpy(state.read_buffer[0..section.len], section);
-    try @import("blocks.zig").parse_section(&state, section.len, entry, allocator);
-    try @import("flush.zig").flush_blocks(&state, entry, allocator);
+    try @import("blocks.zig").parse_section(&state, section.len, entry);
+    try @import("flush.zig").flush_blocks(&state, entry);
 }
 
 test "parse_metadata trims values and accepts reordered keys" {

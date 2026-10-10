@@ -14,7 +14,7 @@ const Allocator = mem.Allocator;
 const expect = std.testing.expect;
 
 /// Renders a block line, buffering ordinary text until its paragraph ends.
-pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry, allocator: Allocator) !void {
+pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: *Entry) !void {
     const section = mem.trimEnd(u8, parser_state.read_buffer[0..section_end], "\r");
     if (section.len == 0) return;
     var list_type: ListType = .none;
@@ -31,28 +31,28 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         }
     }
     if (list_type != .none) {
-        try flush.flush_paragraph(parser_state, entry, allocator);
+        try flush.flush_paragraph(parser_state, entry);
         if (parser_state.list_type != list_type) {
-            try flush.close_list(parser_state, entry, allocator);
-            try entry.add_content(if (list_type == .unordered) "<ul>\n" else "<ol>\n", allocator);
+            try flush.close_list(parser_state, entry);
+            try entry.add_content(if (list_type == .unordered) "<ul>\n" else "<ol>\n", parser_state.allocator);
             parser_state.list_type = list_type;
         }
-        var item: Io.Writer.Allocating = .init(allocator);
+        var item: Io.Writer.Allocating = .init(parser_state.allocator);
         defer item.deinit();
         try item.writer.writeAll("<li>");
-        try parse_inline(section[text_start..], &item.writer, allocator);
+        try parse_inline(section[text_start..], &item.writer, parser_state.allocator);
         try item.writer.writeAll("</li>\n");
-        try entry.add_content(item.written(), allocator);
+        try entry.add_content(item.written(), parser_state.allocator);
         return;
     }
-    try flush.close_list(parser_state, entry, allocator);
+    try flush.close_list(parser_state, entry);
     if (eql(u8, section, "---")) {
-        try flush.flush_blocks(parser_state, entry, allocator);
-        try entry.add_content("<hr>\n", allocator);
+        try flush.flush_blocks(parser_state, entry);
+        try entry.add_content("<hr>\n", parser_state.allocator);
         return;
     }
     if (section[0] == '>' and (section.len == 1 or section[1] == ' ')) {
-        try flush.flush_blocks(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry);
         blk: {
             if (parser_state.section != .QUOTE_BLOCK) {
                 parser_state.block_quote_type = .NONE;
@@ -61,7 +61,7 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
                 if (BlockQuoteType.from_marker(block_quote_type)) |quote_type| {
                     parser_state.block_quote_type = quote_type;
                 } else {
-                    try parser_state.add_quote_text(section[quote_start..], allocator);
+                    try parser_state.add_quote_text(section[quote_start..]);
                     break :blk;
                 }
             }
@@ -70,7 +70,7 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
         return;
     }
     if (section.len >= 3 and mem.find(u8, section[0..3], "```") != null) {
-        try flush.flush_blocks(parser_state, entry, allocator);
+        try flush.flush_blocks(parser_state, entry);
         if (parser_state.section != .QUOTE_BLOCK) {
             const language = std.mem.trim(u8, section[3..], " \t\r");
             try parser_state.change_language(language);
@@ -88,49 +88,49 @@ pub fn parse_section(parser_state: *FileParserState, section_end: usize, entry: 
     if (count > 0 and section[count] == ' ') {
         is_header = true;
         count += 1;
-        try flush.flush_blocks(parser_state, entry, allocator);
-        const header = try std.fmt.allocPrint(allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
-        defer allocator.free(header);
-        try entry.add_content(header, allocator);
+        try flush.flush_blocks(parser_state, entry);
+        const header = try std.fmt.allocPrint(parser_state.allocator, "<h{d} id=\"header-{d}\">", .{ count - 1, parser_state.header_count });
+        defer parser_state.allocator.free(header);
+        try entry.add_content(header, parser_state.allocator);
     } else {
         count = 0;
-        try parser_state.add_paragraph(if (parser_state.paragraph.len == 0) "<p>" else "\n", allocator);
+        try parser_state.add_paragraph(if (parser_state.paragraph.len == 0) "<p>" else "\n");
     }
     header_count = count;
 
-    var content: Io.Writer.Allocating = .init(allocator);
+    var content: Io.Writer.Allocating = .init(parser_state.allocator);
     defer content.deinit();
-    try parse_inline(section[count..], &content.writer, allocator);
-    if (is_header) try parser_state.add_header(section[count..], allocator);
+    try parse_inline(section[count..], &content.writer, parser_state.allocator);
+    if (is_header) try parser_state.add_header(section[count..]);
     if (!is_header) {
-        try parser_state.add_paragraph(content.written(), allocator);
+        try parser_state.add_paragraph(content.written());
         return;
     }
-    try entry.add_content(content.written(), allocator);
+    try entry.add_content(content.written(), parser_state.allocator);
 
     if (is_header) {
-        const close_tag = try std.fmt.allocPrint(allocator, "</h{d}>", .{header_count - 1});
-        defer allocator.free(close_tag);
-        try entry.add_content(close_tag, allocator);
+        const close_tag = try std.fmt.allocPrint(parser_state.allocator, "</h{d}>", .{header_count - 1});
+        defer parser_state.allocator.free(close_tag);
+        try entry.add_content(close_tag, parser_state.allocator);
     }
-    try entry.add_content("\n", allocator);
+    try entry.add_content("\n", parser_state.allocator);
 }
 
-pub fn parse_quote_block(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
-    var html: Io.Writer.Allocating = .init(allocator);
+pub fn parse_quote_block(parser_state: *FileParserState, entry: *Entry) !void {
+    var html: Io.Writer.Allocating = .init(parser_state.allocator);
     defer html.deinit();
     const quote_type = parser_state.block_quote_type.css_name();
     try html.writer.print("<div class=\"quote-block quote-block-{s}\"><p>\n", .{quote_type});
-    try parse_inline(parser_state.block_quote_text, &html.writer, allocator);
+    try parse_inline(parser_state.block_quote_text, &html.writer, parser_state.allocator);
     try html.writer.writeAll("</p></div>\n");
 
-    try entry.add_content(html.written(), allocator);
-    parser_state.deinit_block_text(allocator);
+    try entry.add_content(html.written(), parser_state.allocator);
+    parser_state.deinit_block_text();
 }
 
 // Parse Code block
-pub fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator: Allocator) !void {
-    var html: Io.Writer.Allocating = .init(allocator);
+pub fn parse_code_block(parser_state: *FileParserState, entry: *Entry) !void {
+    var html: Io.Writer.Allocating = .init(parser_state.allocator);
     defer html.deinit();
     const language = parser_state.code_language[0..parser_state.code_language_len];
     const icon = if (eql(u8, language, "zig")) "zig" else if (eql(u8, language, "c")) "c" else if (eql(u8, language, "python")) "python" else "code";
@@ -154,17 +154,17 @@ pub fn parse_code_block(parser_state: *FileParserState, entry: *Entry, allocator
         "<pre>\n<code>");
     try highlight.render(parser_state.code_block_text, language, &html.writer);
     try html.writer.writeAll("</code></pre></div>\n");
-    try entry.add_content(html.written(), allocator);
+    try entry.add_content(html.written(), parser_state.allocator);
 }
 
 // Set up the buffered state expected by the parser while keeping test cases concise.
 fn test_parse_section(section: []const u8, entry: *Entry, allocator: Allocator) !void {
-    var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined, .section = .NORMAL_MODE };
+    defer state.deinit();
     @memcpy(state.read_buffer[0..section.len], section);
     state.used = section.len;
-    try parse_section(&state, section.len, entry, allocator);
-    try flush.flush_blocks(&state, entry, allocator);
+    try parse_section(&state, section.len, entry);
+    try flush.flush_blocks(&state, entry);
 }
 
 test "parse_section with header" {
@@ -257,17 +257,17 @@ test "quote markers render their matching CSS classes" {
         .{ .marker = "[!QUOTE]", .class = "quote" },
     };
     for (cases) |case| {
-        var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
-        defer state.deinit(allocator);
+        var state: FileParserState = .{ .allocator = allocator, .file = undefined, .section = .NORMAL_MODE };
+        defer state.deinit();
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
         const section = try std.fmt.allocPrint(allocator, "> {s}", .{case.marker});
         defer allocator.free(section);
         @memcpy(state.read_buffer[0..section.len], section);
-        try parse_section(&state, section.len, &entry, allocator);
+        try parse_section(&state, section.len, &entry);
         try std.testing.expectEqual(Section.QUOTE_BLOCK, state.section);
-        try state.add_quote_text("<text> & content", allocator);
-        try parse_quote_block(&state, &entry, allocator);
+        try state.add_quote_text("<text> & content");
+        try parse_quote_block(&state, &entry);
         const expected = try std.fmt.allocPrint(allocator, "<div class=\"quote-block quote-block-{s}\">\n<p>&lt;text&gt; &amp; content</p>\n</div>\n", .{case.class});
         defer allocator.free(expected);
         try std.testing.expectEqualStrings(expected, entry.content);
@@ -276,14 +276,14 @@ test "quote markers render their matching CSS classes" {
 
 test "unknown quote markers remain ordinary quote text" {
     const allocator = std.testing.allocator;
-    var state: FileParserState = .{ .file = undefined, .section = .NORMAL_MODE };
-    defer state.deinit(allocator);
+    var state: FileParserState = .{ .allocator = allocator, .file = undefined, .section = .NORMAL_MODE };
+    defer state.deinit();
     var entry: Entry = .{ .name = &.{} };
     defer entry.deinit(allocator);
     const section = "> [!UNKNOWN]";
     @memcpy(state.read_buffer[0..section.len], section);
-    try parse_section(&state, section.len, &entry, allocator);
-    try parse_quote_block(&state, &entry, allocator);
+    try parse_section(&state, section.len, &entry);
+    try parse_quote_block(&state, &entry);
     try std.testing.expectEqualStrings("<div class=\"quote-block quote-block-none\">\n<p>[!UNKNOWN]</p>\n</div>\n", entry.content);
 }
 
@@ -301,12 +301,12 @@ test "parse_code_block shows Python and safely labels unknown languages" {
         .{ .language = "<img>&", .icon = "code", .label = "&lt;img&gt;&amp;", .class = "" },
     };
     for (cases) |case| {
-        var state: FileParserState = .{ .file = undefined };
-        defer state.deinit(allocator);
+        var state: FileParserState = .{ .allocator = allocator, .file = undefined };
+        defer state.deinit();
         try state.change_language(case.language);
         var entry: Entry = .{ .name = &.{} };
         defer entry.deinit(allocator);
-        try parse_code_block(&state, &entry, allocator);
+        try parse_code_block(&state, &entry);
         const expected = try std.fmt.allocPrint(
             allocator,
             "<div class=\"code-section\"><div class=\"code-header\"><img class=\"code-language-icon\" src=\"./language-{s}.svg\" alt=\"\" width=\"20\" height=\"20\"><span>{s}</span></div><pre>\n<code{s}></code></pre></div>\n",
