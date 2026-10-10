@@ -205,7 +205,8 @@
 }
 
 .bold {
-    font-weight: 700;
+    color: #ffffff;
+    font-weight: 550;
 }
 
 hr {
