@@ -106,6 +106,12 @@ fn parse_file_worker(markdown_dir: Dir, file_path: []const u8, entries: *[]Entry
     entries.*[entries.len - 1] = entry;
 }
 
+fn worker(markdown_dir: Dir, file_path: []const u8, entries: *[]Entry, io: Io, allocator: Allocator, result: *?anyerror) void {
+    parse_file_worker(markdown_dir, file_path, entries, io, allocator) catch |err| {
+        result.* = err;
+    };
+}
+
 /// Recursively reads `.md` files into entries using their metadata, appending a
 /// post-date paragraph and rendered newline-ended sections.
 /// The caller owns the returned slice and must deinitialize each entry and free
@@ -121,6 +127,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
 
     var count: usize = 0;
     var threads: [16]Thread = undefined;
+    var results: [16]?anyerror = @splat(null);
     defer {
         for (threads[0..count]) |thread| thread.join();
     }
@@ -132,7 +139,8 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         const file_path = try allocator.dupe(u8, walked_entry.path);
 
         // concurrency here
-        threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, file_path, &entries, io, allocator }) catch |err| {
+        results[count] = null;
+        threads[count % 16] = Thread.spawn(.{}, worker, .{ markdown_dir, file_path, &entries, io, allocator, &results[count] }) catch |err| {
             allocator.free(file_path);
             return err;
         };
@@ -140,13 +148,84 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         if (count == threads.len) {
             for (threads[0..count]) |thread| thread.join();
             count = 0;
+            for (results) |result| if (result) |err| return err;
         }
     }
 
     for (threads[0..count]) |thread| thread.join();
+    const completed = count;
     count = 0;
+    for (results[0..completed]) |result| if (result) |err| return err;
 
     return entries;
+}
+
+test "worker records file open errors without appending entries" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    var posts: []Entry = &.{};
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    var result: ?anyerror = null;
+    const path = try allocator.dupe(u8, "missing.md");
+    const thread = Thread.spawn(.{}, worker, .{ markdown.dir, path, &posts, io, allocator, &result }) catch |err| {
+        allocator.free(path);
+        return err;
+    };
+    thread.join();
+    try std.testing.expectEqual(@as(?anyerror, error.FileNotFound), result);
+    try std.testing.expectEqual(@as(usize, 0), posts.len);
+}
+
+test "create_entries parses multiple full batches and a partial batch" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    var markdown = std.testing.tmpDir(.{ .iterate = true });
+    defer markdown.cleanup();
+    for (0..35) |index| {
+        const filename = try std.fmt.allocPrint(allocator, "post-{d}.md", .{index});
+        defer allocator.free(filename);
+        const data = try std.fmt.allocPrint(allocator, "---\nname: Post\nslug: post-{d}\n---\nBody\n", .{index});
+        defer allocator.free(data);
+        try markdown.dir.writeFile(io, .{ .sub_path = filename, .data = data });
+    }
+    const posts = try create_entries(markdown.dir, io, allocator);
+    defer {
+        for (posts) |*post| post.deinit(allocator);
+        allocator.free(posts);
+    }
+    try std.testing.expectEqual(@as(usize, 35), posts.len);
+    var seen: [35]bool = @splat(false);
+    for (posts) |post| {
+        const index = try std.fmt.parseInt(usize, post.slug[5..], 10);
+        try std.testing.expect(index < seen.len);
+        try std.testing.expect(!seen[index]);
+        seen[index] = true;
+        try std.testing.expectEqualStrings("<p>Body</p>\n", post.content);
+    }
+}
+
+test "create_entries propagates partial and full batch errors and frees successful entries" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    for ([_]usize{ 2, 16 }) |file_count| {
+        var markdown = std.testing.tmpDir(.{ .iterate = true });
+        defer markdown.cleanup();
+        for (0..file_count) |index| {
+            const filename = try std.fmt.allocPrint(allocator, "post-{d}.md", .{index});
+            defer allocator.free(filename);
+            const data = if (index == 1)
+                "---\nunknown: Invalid\n---\nBody\n"
+            else
+                "---\nname: Valid\n---\nBody\n";
+            try markdown.dir.writeFile(io, .{ .sub_path = filename, .data = data });
+        }
+        try std.testing.expectError(error.InvalidMetadataFlagFound, create_entries(markdown.dir, io, allocator));
+    }
 }
 
 test "create_entries separates lists from paragraphs and other blocks" {
@@ -232,20 +311,28 @@ test "create_entries records complete formatted headings once with matching TOC 
 }
 
 fn test_create_entries_allocations(allocator: Allocator, markdown_dir: Dir, io: Io) !void {
-    // Allocating writers report allocation failures as WriteFailed; the testing
-    // utility expects OutOfMemory for the injected allocator failure.
-    const posts = create_entries(markdown_dir, io, allocator) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
-        else => return err,
-    };
+    // FailingAllocator is not thread-safe. Exercise worker allocations serially;
+    // separate integration tests cover concurrent batches and error propagation.
+    var walker = try markdown_dir.walk(allocator);
+    defer walker.deinit();
+    var posts: []Entry = &.{};
     defer {
         for (posts) |*post| post.deinit(allocator);
         allocator.free(posts);
     }
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !mem.endsWith(u8, entry.basename, ".md")) continue;
+        const path = try allocator.dupe(u8, entry.path);
+        // The worker owns path, even when parsing fails.
+        parse_file_worker(markdown_dir, path, &posts, io, allocator) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => return err,
+        };
+    }
     try std.testing.expectEqual(@as(usize, 2), posts.len);
 }
 
-test "create_entries cleans up each allocation failure including previously parsed entries" {
+test "parse_file_worker cleans up each allocation failure including previously parsed entries" {
     const io = std.testing.io;
     var markdown = std.testing.tmpDir(.{ .iterate = true });
     defer markdown.cleanup();
