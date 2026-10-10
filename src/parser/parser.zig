@@ -128,7 +128,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         if (walked_entry.kind != .file) continue;
         if (!mem.endsWith(u8, walked_entry.basename, ".md")) continue;
 
-        const file_path = allocator.dupe(u8, walked_entry.basename);
+        const file_path = allocator.dupe(u8, walked_entry.path);
 
         // concurrency here
         threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, file_path, &entries, io, allocator }) catch |err| {
