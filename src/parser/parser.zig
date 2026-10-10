@@ -119,7 +119,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
 
     while (try walker.next(io)) |walked_entry| {
         if (walked_entry.kind != .file) continue;
-        if (!mem.find(u8, walked_entry.basename, ".md")) continue;
+        if (!mem.endsWith(u8, walked_entry.basename, ".md")) continue;
 
         // concurrency here
         threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, &entries, io, allocator });
