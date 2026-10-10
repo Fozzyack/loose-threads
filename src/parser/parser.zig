@@ -118,7 +118,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         allocator.free(entries);
     }
 
-    var count = 0;
+    var count: usize = 0;
     var threads: [16]Thread = undefined;
     defer {
         for (threads[0..count]) |thread| thread.join();
@@ -142,7 +142,8 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         }
     }
 
-    for (&threads) |*thread| thread.join();
+    for (threads[0..count]) |thread| thread.join();
+    count = 0;
 
     return entries;
 }
