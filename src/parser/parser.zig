@@ -116,21 +116,26 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         allocator.free(entries);
     }
 
-    var threads: [16]Thread = undefined;
     var count = 0;
+    var threads: [16]Thread = undefined;
+    defer {
+        for (threads[0..count]) |thread| thread.join();
+    }
 
     while (try walker.next(io)) |walked_entry| {
         if (walked_entry.kind != .file) continue;
         if (!mem.endsWith(u8, walked_entry.basename, ".md")) continue;
 
         // concurrency here
-        threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, &entries, io, allocator });
+        threads[count % 16] = try Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, walked_entry.basename, &entries, io, allocator });
         count += 1;
+        if (count == threads.len) {
+            for (threads[0..count]) |thread| thread.join();
+            count = 0;
+        }
     }
 
-    for (&threads) |*thread| {
-        thread.join();
-    }
+    for (&threads) |*thread| thread.join();
 
     return entries;
 }
