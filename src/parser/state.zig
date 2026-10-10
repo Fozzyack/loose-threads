@@ -111,9 +111,7 @@ pub const FileParserState = struct {
 
         var output: Io.Writer.Allocating = .init(allocator);
         defer output.deinit();
-        try output.writer.writeAll("<p>");
         try highlight.render(text, "", &output.writer);
-        try output.writer.writeAll("</p>\n");
 
         self.block_quote_text = try allocator.realloc(self.block_quote_text, prev_len + output.written().len);
         @memcpy(self.block_quote_text[prev_len..], output.written());
