@@ -96,12 +96,13 @@ fn parse_file_worker(markdown_dir: Dir, file_path: []const u8, entries: *[]Entry
     var file = try Dir.openFile(markdown_dir, io, file_path, .{});
     defer file.close(io);
 
+    try print("parsing ... {s}\n", .{file_path});
     var entry = try parse_file(file, io, allocator);
     errdefer entry.deinit(allocator);
 
     try parser_mutex.lock(io);
     defer parser_mutex.unlock(io);
-    entries.* = allocator.realloc(entries, entries.*.len + 1);
+    entries.* = try allocator.realloc(entries.*, entries.*.len + 1);
     entries.*[entries.len - 1] = entry;
 }
 
@@ -128,7 +129,7 @@ pub fn create_entries(markdown_dir: Dir, io: Io, allocator: Allocator) ![]Entry 
         if (walked_entry.kind != .file) continue;
         if (!mem.endsWith(u8, walked_entry.basename, ".md")) continue;
 
-        const file_path = allocator.dupe(u8, walked_entry.path);
+        const file_path = try allocator.dupe(u8, walked_entry.path);
 
         // concurrency here
         threads[count % 16] = Thread.spawn(.{}, parse_file_worker, .{ markdown_dir, file_path, &entries, io, allocator }) catch |err| {
